@@ -1,0 +1,19 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: lumina_mock_interview
+    ports:
+      - "5440:5432"
+    volumes:
+      - mock_interview_pgdata:/var/lib/postgresql/data
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6384:6379"
+
+volumes:
+  mock_interview_pgdata:

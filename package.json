@@ -1,0 +1,28 @@
+{
+  "name": "lumina-mock-interview-platform",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Realtime AI mock interview platform: Pipecat runtime + GStack skills + Superpowers plugins + Discord-inspired UX.",
+  "type": "module",
+  "workspaces": [
+    "apps/interview-web",
+    "services/career-engine",
+    "packages/contracts",
+    "packages/skills",
+    "packages/plugins"
+  ],
+  "scripts": {
+    "dev": "npm run dev -w @lumina/interview-web",
+    "build": "npm run build -w @lumina/mock-interview-contracts && npm run build -w @lumina/mock-interview-skills && npm run build -w @lumina/mock-interview-plugins && npm run build -w @lumina/career-engine && npm run build -w @lumina/interview-web",
+    "typecheck": "npm run build -w @lumina/mock-interview-contracts && npm run build -w @lumina/mock-interview-skills && npm run build -w @lumina/mock-interview-plugins && npm run typecheck -w @lumina/career-engine && npm run typecheck -w @lumina/interview-web",
+    "lint": "npm run lint -ws --if-present",
+    "smoke": "node scripts/smoke-test.mjs",
+    "voice:dev": "cd services/voice-agent && python -m uvicorn app.main:app --reload --host 0.0.0.0 --port 8020",
+    "career:dev": "npm run dev -w @lumina/career-engine"
+  },
+  "engines": {
+    "node": ">=20.0.0",
+    "python": ">=3.11"
+  },
+  "dependencies": {}
+}

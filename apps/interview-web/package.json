@@ -1,0 +1,28 @@
+{
+  "name": "@lumina/interview-web",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 0.0.0.0 --port 5174",
+    "build": "tsc -p tsconfig.json && vite build",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "preview": "vite preview --host 0.0.0.0 --port 5174"
+  },
+  "dependencies": {
+    "@monaco-editor/react": "^4.7.0",
+    "@pipecat-ai/client-js": "^1.9.0",
+    "@pipecat-ai/websocket-transport": "^1.6.4",
+    "@vitejs/plugin-react-swc": "^3.11.0",
+    "framer-motion": "^12.38.0",
+    "lucide-react": "^0.462.0",
+    "react": "^18.3.1",
+    "react-dom": "^18.3.1",
+    "typescript": "^5.8.3",
+    "vite": "^7.3.1"
+  },
+  "devDependencies": {
+    "@types/react": "^18.3.23",
+    "@types/react-dom": "^18.3.7"
+  }
+}
