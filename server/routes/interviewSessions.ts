@@ -1,6 +1,10 @@
 import { NextFunction, Request, Response, Router } from 'express';
 import { SessionService } from '../services/sessionService.js';
 
+type SessionWriteAuth =
+  | { type: 'session'; token: string }
+  | { type: 'internal' };
+
 export function createInterviewSessionRouter(service: SessionService) {
   const router = Router();
 
@@ -89,21 +93,19 @@ export function createInterviewSessionRouter(service: SessionService) {
   }));
 
   router.post('/api/interview-sessions/:sessionId/transcript-events', asyncHandler(async (req, res) => {
-      const token = getBearerToken(req.header('authorization'));
-      if (!token) return res.status(401).json({ message: 'Missing session token.' });
-      const result = await service.recordTranscriptEvent(getSingleParam(req.params.sessionId), token, req.body);
+      const auth = resolveSessionWriteAuth(req);
+      const result = await service.recordTranscriptEvent(getSingleParam(req.params.sessionId), auth, req.body);
       return res.status(result.status).json(result.body);
   }, (error, res) => {
-      return res.status(getErrorStatus(error, 401)).json({ message: getErrorMessage(error, 'Unauthorized.') });
+      return res.status(getErrorStatus(error, 401)).json({ message: getSafeErrorMessage(error, 'Unable to persist transcript event.') });
   }));
 
   router.post('/api/interview-sessions/:sessionId/turns', asyncHandler(async (req, res) => {
-      const token = getBearerToken(req.header('authorization'));
-      if (!token) return res.status(401).json({ message: 'Missing session token.' });
-      const result = await service.recordTurn(getSingleParam(req.params.sessionId), token, req.body);
+      const auth = resolveSessionWriteAuth(req);
+      const result = await service.recordTurn(getSingleParam(req.params.sessionId), auth, req.body);
       return res.status(result.status).json(result.body);
   }, (error, res) => {
-      return res.status(getErrorStatus(error, 401)).json({ message: getErrorMessage(error, 'Unauthorized.') });
+      return res.status(getErrorStatus(error, 401)).json({ message: getSafeErrorMessage(error, 'Unable to persist interview turn.') });
   }));
 
   return router;
@@ -132,8 +134,51 @@ function getSingleParam(value: string | string[] | undefined): string {
   return value ?? '';
 }
 
+function resolveSessionWriteAuth(req: Request): SessionWriteAuth {
+  const token = getBearerToken(req.header('authorization'));
+  if (token) {
+    return { type: 'session', token };
+  }
+
+  const providedSecret = req.header('x-pipecat-secret')?.trim();
+  if (!providedSecret) {
+    throw new Error('Missing session token.');
+  }
+
+  const expectedSecret = process.env.PIPECAT_CONNECT_SECRET?.trim();
+  if (!expectedSecret) {
+    throw new Error('PIPECAT_CONNECT_SECRET is not configured.');
+  }
+
+  if (providedSecret !== expectedSecret) {
+    throw new Error('Invalid Pipecat secret.');
+  }
+
+  return { type: 'internal' };
+}
+
 function getErrorMessage(error: unknown, fallback: string): string {
   return error instanceof Error ? error.message : fallback;
+}
+
+function getSafeErrorMessage(error: unknown, fallback: string): string {
+  if (!(error instanceof Error)) {
+    return fallback;
+  }
+
+  if (
+    error.message.includes('Missing session token.') ||
+    error.message.includes('Invalid Pipecat secret.') ||
+    error.message.includes('PIPECAT_CONNECT_SECRET is not configured.') ||
+    error.message.includes('Unauthorized') ||
+    error.message.includes('not found') ||
+    error.message.includes('Invalid ') ||
+    error.message.includes('must ')
+  ) {
+    return error.message;
+  }
+
+  return fallback;
 }
 
 function getErrorStatus(error: unknown, fallback: number): number {
@@ -151,6 +196,14 @@ function getErrorStatus(error: unknown, fallback: number): number {
 
   if (error.message.includes('not configured') || error.message.includes('Unsupported VOICE_TRANSPORT')) {
     return 500;
+  }
+
+  if (error.message.includes('Invalid Pipecat secret.')) {
+    return 403;
+  }
+
+  if (error.message.includes('Invalid ') || error.message.includes('must ')) {
+    return 400;
   }
 
   return fallback;

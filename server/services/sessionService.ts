@@ -4,17 +4,24 @@ import {
   InterviewPayload,
   InterviewReportRecord,
   InterviewSessionRecord,
+  InterviewTranscriptEventRecord,
   InterviewTranscriptEventInput,
+  InterviewTurnRecord,
   InterviewTurnInput,
   InterviewVoiceConnectPayload,
   InternalInterviewVoiceContext,
-  PlaceholderRouteResult,
+  TranscriptEventRole,
+  TranscriptEventType,
   VoiceTransport,
 } from '../types.js';
 import { TokenService } from './tokenService.js';
 import { QuestionService } from './questionService.js';
 import { ScoringService } from './scoringService.js';
 import { CallbackService } from './callbackService.js';
+
+type SessionWriteAuth =
+  | { type: 'session'; token: string }
+  | { type: 'internal' };
 
 export class SessionService {
   constructor(
@@ -277,30 +284,34 @@ export class SessionService {
 
   async recordTranscriptEvent(
     sessionId: string,
-    sessionToken: string,
-    _input: InterviewTranscriptEventInput,
-  ): Promise<PlaceholderRouteResult> {
-    await this.requireAuthorizedSession(sessionId, sessionToken);
+    auth: SessionWriteAuth,
+    input: InterviewTranscriptEventInput,
+  ): Promise<{ status: 200; body: { ok: true; event: InterviewTranscriptEventRecord } }> {
+    await this.requireWriteAuthorizedSession(sessionId, auth);
+    const event = normalizeTranscriptEventInput(sessionId, input);
+    const savedEvent = await this.store.upsertTranscriptEvent(event);
     return {
-      status: 501,
+      status: 200,
       body: {
-        code: 'TRANSCRIPT_EVENTS_NOT_READY',
-        message: 'Transcript event ingestion is not ready yet.',
+        ok: true,
+        event: savedEvent,
       },
     };
   }
 
   async recordTurn(
     sessionId: string,
-    sessionToken: string,
-    _input: InterviewTurnInput,
-  ): Promise<PlaceholderRouteResult> {
-    await this.requireAuthorizedSession(sessionId, sessionToken);
+    auth: SessionWriteAuth,
+    input: InterviewTurnInput,
+  ): Promise<{ status: 200; body: { ok: true; turn: InterviewTurnRecord } }> {
+    await this.requireWriteAuthorizedSession(sessionId, auth);
+    const turn = normalizeTurnInput(sessionId, input);
+    const savedTurn = await this.store.upsertTurn(turn);
     return {
-      status: 501,
+      status: 200,
       body: {
-        code: 'TURNS_NOT_READY',
-        message: 'Turn persistence is not ready yet.',
+        ok: true,
+        turn: savedTurn,
       },
     };
   }
@@ -319,6 +330,14 @@ export class SessionService {
       throw new Error('Unauthorized interview session.');
     }
     return session;
+  }
+
+  private async requireWriteAuthorizedSession(sessionId: string, auth: SessionWriteAuth) {
+    if (auth.type === 'internal') {
+      return this.requireSession(sessionId);
+    }
+
+    return this.requireAuthorizedSession(sessionId, auth.token);
   }
 
   private async setSessionStatus(sessionId: string, status: InterviewSessionRecord['status'], errorMessage: string | null) {
@@ -360,4 +379,131 @@ function generateAccessCode(): string {
   const left = Math.floor(100 + Math.random() * 900);
   const right = Math.floor(100 + Math.random() * 900);
   return `${left}-${right}`;
+}
+
+function normalizeTranscriptEventInput(
+  sessionId: string,
+  input: InterviewTranscriptEventInput,
+): Omit<InterviewTranscriptEventRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTranscriptEventRecord, 'createdAt'>> {
+  const eventId = requiredNonEmptyString(input.eventId, 'eventId');
+  const type = parseTranscriptEventType(input.type);
+  const text = normalizeNullableText(input.text);
+
+  if (eventTypeRequiresText(type) && !text) {
+    throw new Error(`Invalid transcript event text. Event type "${type}" requires non-empty text.`);
+  }
+
+  return {
+    sessionId,
+    eventId,
+    turnId: normalizeOptionalString(input.turnId),
+    role: resolveTranscriptEventRole(type),
+    type,
+    stage: normalizeOptionalString(input.stage),
+    question: normalizeOptionalString(input.question),
+    text,
+    metadata: normalizeMetadata(input.metadata),
+    createdAt: normalizeCreatedAt(input.createdAt),
+  };
+}
+
+function normalizeTurnInput(
+  sessionId: string,
+  input: InterviewTurnInput,
+): Omit<InterviewTurnRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTurnRecord, 'createdAt'>> {
+  return {
+    sessionId,
+    turnId: requiredNonEmptyString(input.turnId, 'turnId'),
+    role: parseTurnRole(input.role),
+    stage: normalizeOptionalString(input.stage),
+    question: normalizeOptionalString(input.question),
+    text: requiredNonEmptyString(input.input, 'turn text'),
+    metadata: normalizeMetadata(input.metadata),
+    createdAt: normalizeCreatedAt(input.createdAt),
+  };
+}
+
+function requiredNonEmptyString(value: string | undefined, fieldName: string): string {
+  const normalized = value?.trim();
+  if (!normalized) {
+    throw new Error(`Invalid ${fieldName}.`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function normalizeNullableText(value: string | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function normalizeMetadata(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return value;
+}
+
+function normalizeCreatedAt(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('Invalid createdAt timestamp.');
+  }
+
+  return parsed.toISOString();
+}
+
+function parseTranscriptEventType(value: string): TranscriptEventType {
+  switch (value) {
+    case 'assistant_text':
+    case 'error':
+    case 'interview_complete':
+    case 'user_final_transcript':
+    case 'user_interim_transcript':
+      return value;
+    default:
+      throw new Error('Invalid transcript event type.');
+  }
+}
+
+function parseTurnRole(value: string | undefined): InterviewTurnRecord['role'] {
+  switch (value) {
+    case undefined:
+    case 'user':
+      return 'user';
+    case 'assistant':
+      return 'assistant';
+    default:
+      throw new Error('Invalid turn role.');
+  }
+}
+
+function eventTypeRequiresText(value: TranscriptEventType): boolean {
+  return value === 'assistant_text' || value === 'user_final_transcript' || value === 'user_interim_transcript';
+}
+
+function resolveTranscriptEventRole(value: TranscriptEventType): TranscriptEventRole {
+  switch (value) {
+    case 'assistant_text':
+      return 'assistant';
+    case 'error':
+    case 'interview_complete':
+      return 'system';
+    case 'user_final_transcript':
+    case 'user_interim_transcript':
+      return 'user';
+  }
 }

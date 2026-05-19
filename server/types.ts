@@ -90,6 +90,43 @@ export interface InterviewReportRecord {
   createdAt: string;
 }
 
+export type InterviewTurnRole = 'user' | 'assistant';
+
+export type TranscriptEventRole = 'user' | 'assistant' | 'system';
+
+export type TranscriptEventType =
+  | 'user_interim_transcript'
+  | 'user_final_transcript'
+  | 'assistant_text'
+  | 'error'
+  | 'interview_complete';
+
+export interface InterviewTurnRecord {
+  id: string;
+  sessionId: string;
+  turnId: string;
+  role: InterviewTurnRole;
+  stage: string | null;
+  question: string | null;
+  text: string;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
+export interface InterviewTranscriptEventRecord {
+  id: string;
+  sessionId: string;
+  eventId: string;
+  turnId: string | null;
+  role: TranscriptEventRole;
+  type: TranscriptEventType;
+  stage: string | null;
+  question: string | null;
+  text: string | null;
+  metadata: Record<string, unknown>;
+  createdAt: string;
+}
+
 export interface VoiceConnectTokenClaims {
   sessionId: string;
   transport: VoiceTransport;
@@ -133,7 +170,7 @@ export interface InternalInterviewVoiceContext {
 }
 
 export interface InterviewTranscriptEventInput {
-  type: string;
+  type: TranscriptEventType;
   eventId?: string;
   turnId?: string;
   stage?: string;
@@ -145,6 +182,7 @@ export interface InterviewTranscriptEventInput {
 
 export interface InterviewTurnInput {
   turnId?: string;
+  role?: InterviewTurnRole;
   stage?: string;
   question?: string;
   input: string;
