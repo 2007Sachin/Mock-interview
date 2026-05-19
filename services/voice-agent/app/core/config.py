@@ -1,3 +1,9 @@
+from __future__ import annotations
+
+from functools import cached_property
+from typing import Literal
+
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -5,23 +11,70 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=("../../.env", ".env"), extra="ignore")
 
     app_name: str = "lumina-voice-agent-service"
-    voice_agent_port: int = 8020
-    career_engine_base_url: str = "http://localhost:4010"
-    hmac_shared_secret: str = "local-dev-secret-change-me"
-    jwt_secret: str = "replace-with-32-byte-secret"
-    voice_session_ttl_seconds: int = 3600
-    voice_redis_url: str = "redis://localhost:6384/1"
-    voice_state_ttl_seconds: int = 7200
-    voice_transcript_max_segments: int = 400
-    callback_retry_attempts: int = 3
-    callback_retry_base_delay_seconds: float = 0.4
-    mistral_api_key: str | None = None
-    mistral_model: str = "mistral-small-latest"
-    whisper_model: str = "base"
-    whisper_device: str = "auto"
-    whisper_compute_type: str = "default"
-    kokoro_voice: str = "af_heart"
+    port: int = Field(default=7860, alias="PORT")
+    node_api_base_url: str = Field(default="http://localhost:4174", alias="NODE_API_BASE_URL")
+    pipecat_connect_secret: str = Field(default="dev-pipecat-secret", alias="PIPECAT_CONNECT_SECRET")
+    voice_transport: Literal["websocket"] = Field(default="websocket", alias="VOICE_TRANSPORT")
+    stt_provider: Literal["whisper", "openai_realtime"] = Field(default="whisper", alias="STT_PROVIDER")
+    whisper_model: str = Field(default="base", alias="WHISPER_MODEL")
+    openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
+    openai_stt_model: str = Field(default="gpt-4o-transcribe", alias="OPENAI_STT_MODEL")
+    llm_provider: Literal["mistral"] = Field(default="mistral", alias="LLM_PROVIDER")
+    mistral_api_key: str = Field(default="", alias="MISTRAL_API_KEY")
+    mistral_llm_model: str = Field(default="mistral-small-latest", alias="MISTRAL_LLM_MODEL")
+    mistral_temperature: float = Field(default=0.4, alias="MISTRAL_TEMPERATURE")
+    mistral_max_tokens: int = Field(default=700, alias="MISTRAL_MAX_TOKENS")
+    tts_provider: Literal["kokoro_browser"] = Field(default="kokoro_browser", alias="TTS_PROVIDER")
+    request_timeout_seconds: float = 15.0
+    persistence_retry_attempts: int = 3
+    persistence_retry_backoff_seconds: float = 0.5
     log_level: str = "info"
+
+    @field_validator("node_api_base_url")
+    @classmethod
+    def _normalize_base_url(cls, value: str) -> str:
+        normalized = value.strip().rstrip("/")
+        if not normalized:
+            raise ValueError("NODE_API_BASE_URL is required")
+        return normalized
+
+    @field_validator("pipecat_connect_secret")
+    @classmethod
+    def _validate_secret(cls, value: str) -> str:
+        normalized = value.strip()
+        if not normalized:
+            raise ValueError("PIPECAT_CONNECT_SECRET is required")
+        return normalized
+
+    @field_validator("mistral_temperature")
+    @classmethod
+    def _validate_temperature(cls, value: float) -> float:
+        if not 0 <= value <= 1:
+            raise ValueError("MISTRAL_TEMPERATURE must be between 0 and 1")
+        return value
+
+    @field_validator("mistral_max_tokens")
+    @classmethod
+    def _validate_max_tokens(cls, value: int) -> int:
+        if value <= 0:
+            raise ValueError("MISTRAL_MAX_TOKENS must be positive")
+        return value
+
+    @cached_property
+    def stt_model(self) -> str:
+        if self.stt_provider == "openai_realtime":
+            return self.openai_stt_model
+        return self.whisper_model
+
+    @property
+    def provider_metadata(self) -> dict[str, str]:
+        return {
+            "sttProvider": self.stt_provider,
+            "sttModel": self.stt_model,
+            "llmProvider": self.llm_provider,
+            "llmModel": self.mistral_llm_model,
+            "ttsProvider": self.tts_provider,
+        }
 
 
 settings = Settings()
