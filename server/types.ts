@@ -6,6 +6,8 @@ export type InterviewSessionStatus =
   | 'expired'
   | 'failed';
 
+export type VoiceTransport = 'websocket' | 'daily';
+
 export interface InterviewPayload {
   source: 'pathwisse-lms';
   requestId: string;
@@ -86,4 +88,74 @@ export interface InterviewReportRecord {
   improvements: string[];
   stageScores: Record<string, number>;
   createdAt: string;
+}
+
+export interface VoiceConnectTokenClaims {
+  sessionId: string;
+  transport: VoiceTransport;
+  nonce: string;
+  iat: number;
+  exp: number;
+}
+
+export interface SignedVoiceConnectToken {
+  token: string;
+  claims: VoiceConnectTokenClaims;
+}
+
+export interface InterviewVoiceConnectPayload {
+  sessionId: string;
+  candidateName: string;
+  roleTitle: string;
+  company: string;
+  stages: string[];
+  voiceToken: string;
+  pipecatConnectUrl: string;
+  transport: VoiceTransport;
+}
+
+export interface InternalInterviewVoiceContext {
+  sessionId: string;
+  status: InterviewSessionStatus;
+  transport: VoiceTransport;
+  requestId: string;
+  candidate: InterviewPayload['user'];
+  opportunity: InterviewPayload['opportunity'];
+  resume: InterviewPayload['resume'];
+  interviewConfig: InterviewPayload['interviewConfig'];
+  answers: Array<{
+    stage: string;
+    question: string;
+    answerTranscript: string;
+    audioUrl: string | null;
+    createdAt: string;
+  }>;
+}
+
+export interface InterviewTranscriptEventInput {
+  type: string;
+  eventId?: string;
+  turnId?: string;
+  stage?: string;
+  question?: string;
+  text?: string;
+  createdAt?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface InterviewTurnInput {
+  turnId?: string;
+  stage?: string;
+  question?: string;
+  input: string;
+  createdAt?: string;
+  metadata?: Record<string, unknown>;
+}
+
+export interface PlaceholderRouteResult {
+  status: 501;
+  body: {
+    code: string;
+    message: string;
+  };
 }

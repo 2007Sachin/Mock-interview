@@ -1,6 +1,16 @@
 import { randomUUID } from 'crypto';
 import { SessionStore } from '../db/store.js';
-import { InterviewAnswerRecord, InterviewPayload, InterviewReportRecord, InterviewSessionRecord } from '../types.js';
+import {
+  InterviewPayload,
+  InterviewReportRecord,
+  InterviewSessionRecord,
+  InterviewTranscriptEventInput,
+  InterviewTurnInput,
+  InterviewVoiceConnectPayload,
+  InternalInterviewVoiceContext,
+  PlaceholderRouteResult,
+  VoiceTransport,
+} from '../types.js';
 import { TokenService } from './tokenService.js';
 import { QuestionService } from './questionService.js';
 import { ScoringService } from './scoringService.js';
@@ -122,6 +132,49 @@ export class SessionService {
     };
   }
 
+  async createVoiceConnectPayload(sessionId: string, sessionToken: string): Promise<InterviewVoiceConnectPayload> {
+    const session = await this.requireAuthorizedSession(sessionId, sessionToken);
+    const transport = this.resolveVoiceTransport();
+    const signedToken = this.tokenService.createSignedVoiceToken({
+      sessionId: session.id,
+      transport,
+    });
+
+    return {
+      sessionId: session.id,
+      candidateName: session.payload.user.name,
+      roleTitle: session.payload.opportunity.title,
+      company: session.payload.opportunity.company,
+      stages: session.payload.interviewConfig.stages,
+      voiceToken: signedToken.token,
+      pipecatConnectUrl: this.resolvePipecatConnectUrl(session.id, transport),
+      transport,
+    };
+  }
+
+  async getInternalVoiceContext(sessionId: string): Promise<InternalInterviewVoiceContext> {
+    const session = await this.requireSession(sessionId);
+    const answers = await this.store.listAnswers(sessionId);
+
+    return {
+      sessionId: session.id,
+      status: session.status,
+      transport: this.resolveVoiceTransport(),
+      requestId: session.payload.requestId,
+      candidate: session.payload.user,
+      opportunity: session.payload.opportunity,
+      resume: session.payload.resume,
+      interviewConfig: session.payload.interviewConfig,
+      answers: answers.map((answer) => ({
+        stage: answer.stage,
+        question: answer.question,
+        answerTranscript: answer.answerTranscript,
+        audioUrl: answer.audioUrl,
+        createdAt: answer.createdAt,
+      })),
+    };
+  }
+
   async nextQuestion(sessionId: string, sessionToken: string, stage: string) {
     const session = await this.requireAuthorizedSession(sessionId, sessionToken);
     const answers = await this.store.listAnswers(sessionId);
@@ -222,6 +275,36 @@ export class SessionService {
     return { ...report, status: 'completed' as const };
   }
 
+  async recordTranscriptEvent(
+    sessionId: string,
+    sessionToken: string,
+    _input: InterviewTranscriptEventInput,
+  ): Promise<PlaceholderRouteResult> {
+    await this.requireAuthorizedSession(sessionId, sessionToken);
+    return {
+      status: 501,
+      body: {
+        code: 'TRANSCRIPT_EVENTS_NOT_READY',
+        message: 'Transcript event ingestion is not ready yet.',
+      },
+    };
+  }
+
+  async recordTurn(
+    sessionId: string,
+    sessionToken: string,
+    _input: InterviewTurnInput,
+  ): Promise<PlaceholderRouteResult> {
+    await this.requireAuthorizedSession(sessionId, sessionToken);
+    return {
+      status: 501,
+      body: {
+        code: 'TURNS_NOT_READY',
+        message: 'Turn persistence is not ready yet.',
+      },
+    };
+  }
+
   private async requireSession(sessionId: string) {
     const session = await this.store.findSession(sessionId);
     if (!session) {
@@ -245,6 +328,31 @@ export class SessionService {
       errorMessage,
       completedAt: status === 'failed' || status === 'expired' ? new Date().toISOString() : current.completedAt,
     }));
+  }
+
+  private resolveVoiceTransport(): VoiceTransport {
+    const configuredTransport = (process.env.VOICE_TRANSPORT ?? 'daily').trim();
+    if (configuredTransport === 'websocket' || configuredTransport === 'daily') {
+      return configuredTransport;
+    }
+    throw new Error(`Unsupported VOICE_TRANSPORT "${configuredTransport}".`);
+  }
+
+  private resolvePipecatConnectUrl(sessionId: string, transport: VoiceTransport): string {
+    const configuredUrl =
+      process.env.PIPECAT_CONNECT_URL?.trim() ||
+      process.env.VOICE_AGENT_BASE_URL?.trim();
+
+    if (!configuredUrl) {
+      throw new Error('PIPECAT_CONNECT_URL or VOICE_AGENT_BASE_URL must be configured.');
+    }
+
+    const normalizedBaseUrl = configuredUrl.replace(/\/+$/, '');
+    if (transport === 'websocket') {
+      return `${normalizedBaseUrl.replace(/^http/i, 'ws')}/v1/realtime/${sessionId}`;
+    }
+
+    return `${normalizedBaseUrl}/v1/connect/${sessionId}`;
   }
 }
 
