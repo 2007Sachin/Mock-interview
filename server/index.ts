@@ -4,6 +4,7 @@ import express from 'express';
 import { createSessionStore } from './db/store.js';
 import { createInterviewSessionRouter } from './routes/interviewSessions.js';
 import { CallbackService } from './services/callbackService.js';
+import { MistralInterviewService } from './services/mistralInterviewService.js';
 import { QuestionService } from './services/questionService.js';
 import { ScoringService } from './services/scoringService.js';
 import { SessionService } from './services/sessionService.js';
@@ -26,6 +27,7 @@ const store = createSessionStore({
 const tokenService = new TokenService();
 const questionService = new QuestionService();
 const scoringService = new ScoringService();
+const mistralInterviewService = new MistralInterviewService();
 const callbackService = new CallbackService(callbackSecret);
 const sessionService = new SessionService(
   store,
@@ -34,6 +36,7 @@ const sessionService = new SessionService(
   scoringService,
   callbackService,
   publicUrl,
+  mistralInterviewService,
 );
 
 app.get('/health', (_req, res) => {

@@ -1,9 +1,11 @@
 import { randomUUID } from 'crypto';
 import { SessionStore } from '../db/store.js';
 import {
+  InterviewAnswerRecord,
   DailyInterviewVoiceConnectPayload,
   DailyTransportConnectParams,
   InterviewPayload,
+  InterviewReportDraft,
   InterviewReportRecord,
   InterviewSessionRecord,
   InterviewTranscriptEventRecord,
@@ -21,6 +23,7 @@ import { TokenService } from './tokenService.js';
 import { QuestionService } from './questionService.js';
 import { ScoringService } from './scoringService.js';
 import { CallbackService } from './callbackService.js';
+import { InterviewReportGenerator, MistralInterviewServiceError } from './mistralInterviewService.js';
 
 type SessionWriteAuth =
   | { type: 'session'; token: string }
@@ -34,6 +37,7 @@ export class SessionService {
     private readonly scoringService: ScoringService,
     private readonly callbackService: CallbackService,
     private readonly publicUrl: string,
+    private readonly reportGenerator: InterviewReportGenerator | null = null,
   ) {}
 
   async createSession(payload: InterviewPayload) {
@@ -268,7 +272,9 @@ export class SessionService {
   async complete(sessionId: string, sessionToken: string): Promise<InterviewReportRecord & { status: 'completed' }> {
     const session = await this.requireAuthorizedSession(sessionId, sessionToken);
     const answers = await this.store.listAnswers(sessionId);
-    const scored = this.scoringService.score(session, answers);
+    const turns = await this.store.listTurns(sessionId);
+    const transcriptEvents = await this.store.listTranscriptEvents(sessionId);
+    const scored = await this.generateInterviewReport(session, answers, turns, transcriptEvents);
     const report = await this.store.upsertReport({
       sessionId,
       ...scored,
@@ -317,6 +323,34 @@ export class SessionService {
       throw new Error('Interview report not available yet.');
     }
     return { ...report, status: 'completed' as const };
+  }
+
+  private async generateInterviewReport(
+    session: InterviewSessionRecord,
+    answers: InterviewAnswerRecord[],
+    turns: InterviewTurnRecord[],
+    transcriptEvents: InterviewTranscriptEventRecord[],
+  ): Promise<InterviewReportDraft> {
+    if (!this.shouldUseMistralReporting() || !this.reportGenerator) {
+      return this.scoringService.score(session, answers);
+    }
+
+    try {
+      return await this.reportGenerator.generateReport({
+        session,
+        answers: selectReportAnswers(answers, turns),
+        turns,
+        transcriptEvents,
+      });
+    } catch (error) {
+      const reason = error instanceof MistralInterviewServiceError ? error.code : 'unknown';
+      console.warn('[pathwisse-mockinterview] Falling back to heuristic scoring.', {
+        sessionId: session.id,
+        provider: 'mistral',
+        reason,
+      });
+      return this.scoringService.score(session, answers);
+    }
   }
 
   async recordTranscriptEvent(
@@ -528,6 +562,12 @@ export class SessionService {
     const normalizedDomain = domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
     return `https://${normalizedDomain}/${roomName}`;
   }
+
+  private shouldUseMistralReporting(): boolean {
+    const provider = (process.env.LLM_PROVIDER ?? 'mock').trim().toLowerCase();
+    const apiKey = process.env.MISTRAL_API_KEY?.trim();
+    return provider === 'mistral' && Boolean(apiKey);
+  }
 }
 
 function generateAccessCode(): string {
@@ -661,4 +701,36 @@ function resolveTranscriptEventRole(value: TranscriptEventType): TranscriptEvent
     case 'user_interim_transcript':
       return 'user';
   }
+}
+
+function selectReportAnswers(
+  answers: InterviewAnswerRecord[],
+  turns: InterviewTurnRecord[],
+): InterviewAnswerRecord[] {
+  if (turns.length === 0) {
+    return answers;
+  }
+
+  const userTurnTexts = new Set(
+    turns
+      .filter((turn) => turn.role === 'user')
+      .map((turn) => normalizeComparableText(turn.text))
+      .filter(Boolean),
+  );
+
+  return answers.filter((answer) => {
+    const normalizedAnswer = normalizeComparableText(answer.answerTranscript);
+    if (!normalizedAnswer) {
+      return true;
+    }
+
+    return !userTurnTexts.has(normalizedAnswer);
+  });
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }

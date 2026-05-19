@@ -90,6 +90,8 @@ export interface InterviewReportRecord {
   createdAt: string;
 }
 
+export type InterviewReportDraft = Omit<InterviewReportRecord, 'id' | 'createdAt' | 'sessionId'>;
+
 export type InterviewTurnRole = 'user' | 'assistant';
 
 export type TranscriptEventRole = 'user' | 'assistant' | 'system';

@@ -31,6 +31,13 @@ MOCK_INTERVIEW_STORE_PATH=.data/mock-interview-store.json
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pathwisse_mock_interview
 SESSION_TOKEN_SECRET=replace-me
 AI_PROVIDER_API_KEY=
+LLM_PROVIDER=mock
+MISTRAL_API_KEY=
+MISTRAL_LLM_MODEL=mistral-small-latest
+MISTRAL_TEMPERATURE=0.3
+MISTRAL_MAX_TOKENS=1200
+MISTRAL_TIMEOUT_MS=15000
+MISTRAL_RETRY_COUNT=1
 VOICE_AGENT_PROVIDER=pipecat
 VOICE_TRANSPORT=websocket
 PIPECAT_SERVICE_URL=http://localhost:7860
@@ -61,6 +68,7 @@ Apply the schema from [server/db/schema.sql](</d:/Voiceagent integration stage/V
 ## Security Notes
 
 - Full JD/resume payload stays server-side in the mock interview backend only.
+- Final report generation can use the Node-owned Mistral path when `LLM_PROVIDER=mistral` and `MISTRAL_API_KEY` is set; otherwise the existing heuristic scorer remains the fallback.
 - No JD/resume/PII is sent through URL query params.
 - `sessionStorage` stores only the short-lived interview session token.
 - Access codes are hashed before persistence.

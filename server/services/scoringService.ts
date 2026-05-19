@@ -1,7 +1,7 @@
-import { InterviewAnswerRecord, InterviewReportRecord, InterviewSessionRecord } from '../types.js';
+import { InterviewAnswerRecord, InterviewReportDraft, InterviewSessionRecord } from '../types.js';
 
 export class ScoringService {
-  score(session: InterviewSessionRecord, answers: InterviewAnswerRecord[]): Omit<InterviewReportRecord, 'id' | 'createdAt' | 'sessionId'> {
+  score(session: InterviewSessionRecord, answers: InterviewAnswerRecord[]): InterviewReportDraft {
     // Deterministic fallback scoring for MVP when no external AI scorer is configured.
     const answerLengths = answers.map((answer) => answer.answerTranscript.trim().split(/\s+/).filter(Boolean).length);
     const avgLength = answerLengths.length > 0
