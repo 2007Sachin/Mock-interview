@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from 'react';
 import { PipecatClient, type BotOutputData, type MediaState, type TranscriptData } from '@pipecat-ai/client-js';
 import { DailyTransport } from '@pipecat-ai/daily-transport';
 import { useKokoroTts } from '@/hooks/useKokoroTts';
+import { env } from '@/lib/env';
 import { ApiRequestError, connectInterviewVoice } from '@/lib/mockInterviewApi';
 import { formatSessionStorageKey } from '@/lib/signature';
 import type {
@@ -24,6 +25,31 @@ type UsePipecatInterviewOptions = {
   currentStage: string;
   currentQuestion: string;
   onManualFallbackSubmit?: (transcript: string) => Promise<void>;
+};
+
+type PipecatTransportType = 'websocket' | 'daily';
+
+type VoiceConnectPayloadBase = {
+  sessionId: string;
+  candidateName: string;
+  roleTitle: string;
+  company: string;
+  stages: string[];
+  transport: PipecatTransportType;
+  currentStage?: string | null;
+  currentQuestion?: string | null;
+};
+
+type WebsocketInterviewVoiceConnectPayload = VoiceConnectPayloadBase & {
+  transport: 'websocket';
+  voiceToken: string;
+  pipecatConnectUrl: string;
+};
+
+type DailyInterviewVoiceConnectPayload = VoiceConnectPayloadBase & {
+  transport: 'daily';
+  connectParams: Record<string, unknown> | null;
+  setupError: string | null;
 };
 
 function getErrorMessage(error: unknown) {
@@ -148,6 +174,7 @@ export function usePipecatInterview({
 }: UsePipecatInterviewOptions) {
   const kokoro = useKokoroTts();
   const clientRef = useRef<PipecatClient | null>(null);
+  const websocketRef = useRef<WebSocket | null>(null);
   const lastSpokenAssistantTextRef = useRef('');
   const kokoroRef = useRef({
     isReady: kokoro.isReady,
@@ -162,6 +189,7 @@ export function usePipecatInterview({
   const [assistantTranscript, setAssistantTranscript] = useState('');
   const [resolvedStage, setResolvedStage] = useState(currentStage);
   const [resolvedQuestion, setResolvedQuestion] = useState(currentQuestion);
+  const [transport, setTransport] = useState<PipecatTransportType>(env.voiceTransport);
   const [providerMetadata, setProviderMetadata] = useState<InterviewProviderMetadata>(PROVIDER_PLACEHOLDERS);
   const [micPermissionStatus, setMicPermissionStatus] = useState('not_requested');
   const [error, setError] = useState('');
@@ -185,6 +213,8 @@ export function usePipecatInterview({
     return () => {
       void clientRef.current?.disconnect();
       clientRef.current = null;
+      websocketRef.current?.close();
+      websocketRef.current = null;
     };
   }, []);
 
@@ -347,6 +377,54 @@ export function usePipecatInterview({
     return client;
   };
 
+  const connectWebsocketTransport = async (voiceConnect: WebsocketInterviewVoiceConnectPayload) => {
+    if (websocketRef.current?.readyState === WebSocket.OPEN) {
+      setConnectionStatus('connected');
+      return;
+    }
+
+    await new Promise<void>((resolve, reject) => {
+      const socket = new WebSocket(
+        `${voiceConnect.pipecatConnectUrl}?token=${encodeURIComponent(voiceConnect.voiceToken)}`,
+      );
+
+      socket.onopen = () => {
+        websocketRef.current = socket;
+        setConnectionStatus('connected');
+        setMicPermissionStatus('not_requested');
+        setError('');
+        resolve();
+      };
+
+      socket.onmessage = (event) => {
+        try {
+          const parsed = JSON.parse(String(event.data)) as unknown;
+          const browserEvent = extractBrowserEvent(parsed);
+          if (browserEvent) {
+            applyBrowserEvent(browserEvent);
+          }
+        } catch {
+          setError('Received an invalid websocket event payload from the voice service.');
+        }
+      };
+
+      socket.onerror = () => {
+        setConnectionStatus('error');
+        reject(new Error('Local websocket transport failed to connect.'));
+      };
+
+      socket.onclose = () => {
+        if (websocketRef.current === socket) {
+          websocketRef.current = null;
+        }
+        setUserSpeaking(false);
+        setBotThinking(false);
+        setTransportBotSpeaking(false);
+        setConnectionStatus('disconnected');
+      };
+    });
+  };
+
   const connect = async () => {
     if (!sessionId) {
       const nextError = 'Session id missing. Reopen the interview room.';
@@ -361,31 +439,42 @@ export function usePipecatInterview({
       throw new Error(nextError);
     }
 
-    const client = ensureClient();
     setError('');
 
     try {
-      const voiceConnect = await connectInterviewVoice(sessionId, sessionToken);
-      if (voiceConnect.transport !== 'daily') {
-        throw new Error(`Unsupported Pipecat transport "${voiceConnect.transport}". Expected "daily".`);
-      }
-
+      const voiceConnect = await connectInterviewVoice(sessionId, sessionToken) as
+        | WebsocketInterviewVoiceConnectPayload
+        | DailyInterviewVoiceConnectPayload;
+      setTransport(voiceConnect.transport);
       setResolvedStage(voiceConnect.currentStage ?? currentStage);
       setResolvedQuestion(voiceConnect.currentQuestion ?? currentQuestion);
-      setProviderMetadata(withPartialProviderMetadata(voiceConnect.providerMetadata ?? {}));
-      await client.initDevices();
-      setMicPermissionStatus(getMicPermissionStatus(client.mediaState));
-      await client.connect(
-        voiceConnect.connectParams as NonNullable<Parameters<PipecatClient['connect']>[0]>,
-      );
+      if (voiceConnect.transport === 'daily') {
+        const client = ensureClient();
+        const dailyVoiceConnect = voiceConnect as DailyInterviewVoiceConnectPayload;
+        if (dailyVoiceConnect.setupError) {
+          throw new Error(dailyVoiceConnect.setupError);
+        }
+        if (!dailyVoiceConnect.connectParams) {
+          throw new Error('Daily transport is configured, but the connect payload is unavailable.');
+        }
+
+        await client.initDevices();
+        setMicPermissionStatus(getMicPermissionStatus(client.mediaState));
+        await client.connect(
+          dailyVoiceConnect.connectParams as NonNullable<Parameters<PipecatClient['connect']>[0]>,
+        );
+        return;
+      }
+
+      await connectWebsocketTransport(voiceConnect as WebsocketInterviewVoiceConnectPayload);
     } catch (connectError) {
       const nextError =
         connectError instanceof ApiRequestError && connectError.status === 404
-          ? 'Voice connect endpoint is not available yet. Expected /voice/connect to return Pipecat Daily connection parameters.'
+          ? 'Voice connect endpoint is not available yet. Expected /voice/connect to return transport-specific connection parameters.'
           : `Unable to connect the Pipecat interview. ${getErrorMessage(connectError)}`;
 
       setConnectionStatus('error');
-      setMicPermissionStatus(getMicPermissionStatus(client.mediaState));
+      setMicPermissionStatus(clientRef.current ? getMicPermissionStatus(clientRef.current.mediaState) : 'not_requested');
       setError(nextError);
       throw new Error(nextError);
     }
@@ -398,6 +487,11 @@ export function usePipecatInterview({
     setTransportBotSpeaking(false);
     setMicPermissionStatus(clientRef.current ? getMicPermissionStatus(clientRef.current.mediaState) : 'not_requested');
     await kokoro.stop();
+
+    if (websocketRef.current) {
+      websocketRef.current.close();
+      websocketRef.current = null;
+    }
 
     if (!clientRef.current) {
       setConnectionStatus('idle');
@@ -452,6 +546,19 @@ export function usePipecatInterview({
 
     setError('');
 
+    if (transport === 'websocket' && websocketRef.current?.readyState === WebSocket.OPEN) {
+      websocketRef.current.send(JSON.stringify({
+        type: 'user_final_transcript',
+        text: nextText,
+        stage: resolvedStage,
+        question: resolvedQuestion,
+        createdAt: new Date().toISOString(),
+      }));
+      setInterimTranscript('');
+      setFinalTranscript(nextText);
+      return;
+    }
+
     try {
       await onManualFallbackSubmit(nextText);
       setInterimTranscript('');
@@ -473,6 +580,7 @@ export function usePipecatInterview({
     assistantTranscript,
     currentStage: resolvedStage,
     currentQuestion: resolvedQuestion,
+    transport,
     ...providerMetadata,
     connect,
     disconnect,

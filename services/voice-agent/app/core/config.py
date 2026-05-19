@@ -14,7 +14,10 @@ class Settings(BaseSettings):
     port: int = Field(default=7860, alias="PORT")
     node_api_base_url: str = Field(default="http://localhost:4174", alias="NODE_API_BASE_URL")
     pipecat_connect_secret: str = Field(default="dev-pipecat-secret", alias="PIPECAT_CONNECT_SECRET")
-    voice_transport: Literal["websocket"] = Field(default="websocket", alias="VOICE_TRANSPORT")
+    voice_transport: Literal["websocket", "daily"] = Field(default="websocket", alias="VOICE_TRANSPORT")
+    pipecat_room_provider: Literal["daily"] = Field(default="daily", alias="PIPECAT_ROOM_PROVIDER")
+    pipecat_daily_api_key: str = Field(default="", alias="PIPECAT_DAILY_API_KEY")
+    pipecat_daily_domain: str = Field(default="", alias="PIPECAT_DAILY_DOMAIN")
     stt_provider: Literal["whisper", "openai_realtime"] = Field(default="whisper", alias="STT_PROVIDER")
     whisper_model: str = Field(default="base", alias="WHISPER_MODEL")
     openai_api_key: str = Field(default="", alias="OPENAI_API_KEY")
@@ -46,6 +49,11 @@ class Settings(BaseSettings):
             raise ValueError("PIPECAT_CONNECT_SECRET is required")
         return normalized
 
+    @field_validator("pipecat_daily_domain")
+    @classmethod
+    def _normalize_daily_domain(cls, value: str) -> str:
+        return value.strip().rstrip("/")
+
     @field_validator("mistral_temperature")
     @classmethod
     def _validate_temperature(cls, value: float) -> float:
@@ -75,6 +83,19 @@ class Settings(BaseSettings):
             "llmModel": self.mistral_llm_model,
             "ttsProvider": self.tts_provider,
         }
+
+    @property
+    def missing_daily_config(self) -> list[str]:
+        missing: list[str] = []
+        if self.voice_transport != "daily":
+            return missing
+        if self.pipecat_room_provider != "daily":
+            missing.append("PIPECAT_ROOM_PROVIDER")
+        if not self.pipecat_daily_api_key:
+            missing.append("PIPECAT_DAILY_API_KEY")
+        if not self.pipecat_daily_domain:
+            missing.append("PIPECAT_DAILY_DOMAIN")
+        return missing
 
 
 settings = Settings()

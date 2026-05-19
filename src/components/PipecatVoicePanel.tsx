@@ -61,8 +61,8 @@ export function PipecatVoicePanel({
     <div className="space-y-5 rounded-[2rem] border border-white/10 bg-white/5 p-6">
       <p className="rounded-2xl border border-sky-300/30 bg-sky-300/10 px-4 py-3 text-sm text-sky-100">
         Pipecat mode is enabled for session <span className="font-medium text-white">{sessionId}</span>. Live voice
-        connects through the upcoming frontend-only Daily transport flow, while manual answer persistence still uses the
-        existing fallback submit path.
+        connects through the active <span className="font-medium text-white">{voice.transport}</span> transport flow,
+        while Kokoro stays browser-only for assistant playback.
       </p>
 
       <div className="flex flex-wrap gap-3">
@@ -151,6 +151,9 @@ export function PipecatVoicePanel({
         <div className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
           <p className="text-xs uppercase tracking-[0.3em] text-slate-400">Connection</p>
           <p className="mt-2 text-white">{voice.connectionStatus}</p>
+          <p className="mt-3 text-sm text-slate-300">
+            <span className="text-slate-400">Transport:</span> {voice.transport}
+          </p>
           <p className="mt-3 text-sm text-slate-300">
             <span className="text-slate-400">Mic permission:</span> {voice.micPermissionStatus}
           </p>

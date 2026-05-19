@@ -31,7 +31,17 @@ MOCK_INTERVIEW_STORE_PATH=.data/mock-interview-store.json
 DATABASE_URL=postgresql://postgres:postgres@localhost:5432/pathwisse_mock_interview
 SESSION_TOKEN_SECRET=replace-me
 AI_PROVIDER_API_KEY=
+VOICE_AGENT_PROVIDER=pipecat
+VOICE_TRANSPORT=websocket
+PIPECAT_SERVICE_URL=http://localhost:7860
+PIPECAT_CONNECT_SECRET=dev-pipecat-secret
+PIPECAT_ROOM_PROVIDER=daily
+PIPECAT_DAILY_API_KEY=
+PIPECAT_DAILY_DOMAIN=
 VITE_MOCK_INTERVIEW_API_URL=http://localhost:4174
+VITE_VOICE_AGENT_PROVIDER=pipecat
+VITE_VOICE_TRANSPORT=websocket
+VITE_TTS_PROVIDER=kokoro
 ```
 
 ## Commands
@@ -56,3 +66,12 @@ Apply the schema from [server/db/schema.sql](</d:/Voiceagent integration stage/V
 - Access codes are hashed before persistence.
 - Callback payloads are signed with `MOCK_INTERVIEW_CALLBACK_SECRET`.
 - The frontend safe-context API returns role/company/stages/status only.
+- Mistral, Daily API, and Pipecat secrets stay server-side only.
+- Kokoro remains browser-only for assistant playback.
+
+## Voice Transport Modes
+
+- Local/dev default: `VOICE_TRANSPORT=websocket`
+- Production path: `VOICE_TRANSPORT=daily`
+- Daily mode also requires `PIPECAT_ROOM_PROVIDER=daily`, `PIPECAT_DAILY_API_KEY`, `PIPECAT_DAILY_DOMAIN`, and `PIPECAT_SERVICE_URL`.
+- Local websocket mode does not require Daily credentials.

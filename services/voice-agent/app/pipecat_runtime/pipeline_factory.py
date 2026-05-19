@@ -6,6 +6,7 @@ from dataclasses import dataclass, field
 from fastapi import WebSocket
 
 from app.career_ops.client import InternalVoiceContext, NodeClientError, NodeInterviewSessionClient
+from app.core.config import settings
 from app.core.observability import log_event
 from app.interview.orchestrator import AssistantTurn, MistralInterviewOrchestrator, OrchestratorInput
 from app.realtime.events import (
@@ -33,7 +34,23 @@ class SessionConversationState:
     last_assistant_event: AssistantTextEvent | None = None
 
 
-class PipelineFactory:
+@dataclass(frozen=True)
+class DailyTransportRuntime:
+    event_contract: tuple[str, ...] = (
+        "user_interim_transcript",
+        "user_final_transcript",
+        "assistant_text",
+        "bot_thinking",
+        "error",
+        "interview_complete",
+    )
+
+    @property
+    def missing_config(self) -> list[str]:
+        return settings.missing_daily_config
+
+
+class WebsocketPipelineRuntime:
     def __init__(self) -> None:
         self._node_client = NodeInterviewSessionClient()
         self._orchestrator = MistralInterviewOrchestrator()
@@ -271,6 +288,25 @@ class PipelineFactory:
 
     def _session_lock(self, session_id: str) -> asyncio.Lock:
         return self._locks.setdefault(session_id, asyncio.Lock())
+
+
+class PipelineFactory:
+    def __init__(self) -> None:
+        self._websocket_runtime = WebsocketPipelineRuntime()
+        self._daily_runtime = DailyTransportRuntime()
+
+    @property
+    def voice_transport(self) -> str:
+        return settings.voice_transport
+
+    def websocket_runtime(self) -> WebsocketPipelineRuntime:
+        return self._websocket_runtime
+
+    def daily_runtime(self) -> DailyTransportRuntime:
+        return self._daily_runtime
+
+    def uses_websocket_transport(self) -> bool:
+        return self.voice_transport == "websocket"
 
 
 def _resolve_stage_name(context: InternalVoiceContext, completed_user_turns: int) -> str:

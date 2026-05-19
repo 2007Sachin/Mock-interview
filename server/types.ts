@@ -140,16 +140,37 @@ export interface SignedVoiceConnectToken {
   claims: VoiceConnectTokenClaims;
 }
 
-export interface InterviewVoiceConnectPayload {
+export interface InterviewVoiceConnectPayloadBase {
   sessionId: string;
   candidateName: string;
   roleTitle: string;
   company: string;
   stages: string[];
+  transport: VoiceTransport;
+  currentStage: string | null;
+  currentQuestion: string | null;
+}
+
+export interface DailyTransportConnectParams {
+  url: string;
+  token: string;
+}
+
+export interface WebsocketInterviewVoiceConnectPayload extends InterviewVoiceConnectPayloadBase {
+  transport: 'websocket';
   voiceToken: string;
   pipecatConnectUrl: string;
-  transport: VoiceTransport;
 }
+
+export interface DailyInterviewVoiceConnectPayload extends InterviewVoiceConnectPayloadBase {
+  transport: 'daily';
+  connectParams: DailyTransportConnectParams | null;
+  setupError: string | null;
+}
+
+export type InterviewVoiceConnectPayload =
+  | WebsocketInterviewVoiceConnectPayload
+  | DailyInterviewVoiceConnectPayload;
 
 export interface InternalInterviewVoiceContext {
   sessionId: string;

@@ -1,6 +1,8 @@
 import { randomUUID } from 'crypto';
 import { SessionStore } from '../db/store.js';
 import {
+  DailyInterviewVoiceConnectPayload,
+  DailyTransportConnectParams,
   InterviewPayload,
   InterviewReportRecord,
   InterviewSessionRecord,
@@ -13,6 +15,7 @@ import {
   TranscriptEventRole,
   TranscriptEventType,
   VoiceTransport,
+  WebsocketInterviewVoiceConnectPayload,
 } from '../types.js';
 import { TokenService } from './tokenService.js';
 import { QuestionService } from './questionService.js';
@@ -142,21 +145,55 @@ export class SessionService {
   async createVoiceConnectPayload(sessionId: string, sessionToken: string): Promise<InterviewVoiceConnectPayload> {
     const session = await this.requireAuthorizedSession(sessionId, sessionToken);
     const transport = this.resolveVoiceTransport();
-    const signedToken = this.tokenService.createSignedVoiceToken({
-      sessionId: session.id,
-      transport,
-    });
-
-    return {
+    const turns = await this.store.listTurns(session.id);
+    const lastAssistantTurn = [...turns].reverse().find((turn) => turn.role === 'assistant');
+    const currentStage =
+      lastAssistantTurn?.stage ??
+      session.payload.interviewConfig.stages[0] ??
+      null;
+    const currentQuestion = lastAssistantTurn?.question ?? null;
+    const basePayload = {
       sessionId: session.id,
       candidateName: session.payload.user.name,
       roleTitle: session.payload.opportunity.title,
       company: session.payload.opportunity.company,
       stages: session.payload.interviewConfig.stages,
-      voiceToken: signedToken.token,
-      pipecatConnectUrl: this.resolvePipecatConnectUrl(session.id, transport),
       transport,
+      currentStage,
+      currentQuestion,
+    } as const;
+
+    if (transport === 'websocket') {
+      const signedToken = this.tokenService.createSignedVoiceToken({
+        sessionId: session.id,
+        transport,
+      });
+
+      const payload: WebsocketInterviewVoiceConnectPayload = {
+        ...basePayload,
+        transport,
+        voiceToken: signedToken.token,
+        pipecatConnectUrl: this.resolvePipecatConnectUrl(session.id, transport),
+      };
+      return payload;
+    }
+
+    const payload: DailyInterviewVoiceConnectPayload = {
+      ...basePayload,
+      transport,
+      connectParams: null,
+      setupError: null,
     };
+
+    const dailyConfig = this.requireDailyTransportConfig();
+    try {
+      payload.connectParams = await this.createDailyConnectParams(session, dailyConfig);
+      return payload;
+    } catch {
+      payload.setupError =
+        'Daily transport is configured, but Daily room provisioning is unavailable. Verify the server-side Daily configuration and try again.';
+      return payload;
+    }
   }
 
   async getInternalVoiceContext(sessionId: string): Promise<InternalInterviewVoiceContext> {
@@ -350,7 +387,7 @@ export class SessionService {
   }
 
   private resolveVoiceTransport(): VoiceTransport {
-    const configuredTransport = (process.env.VOICE_TRANSPORT ?? 'daily').trim();
+    const configuredTransport = (process.env.VOICE_TRANSPORT ?? 'websocket').trim();
     if (configuredTransport === 'websocket' || configuredTransport === 'daily') {
       return configuredTransport;
     }
@@ -372,6 +409,124 @@ export class SessionService {
     }
 
     return `${normalizedBaseUrl}/v1/connect/${sessionId}`;
+  }
+
+  private requireDailyTransportConfig(): {
+    apiKey: string;
+    domain: string;
+    serviceUrl: string;
+  } {
+    const roomProvider = (process.env.PIPECAT_ROOM_PROVIDER ?? 'daily').trim();
+    if (roomProvider !== 'daily') {
+      throw new Error('PIPECAT_ROOM_PROVIDER is not configured for Daily transport.');
+    }
+
+    const apiKey = process.env.PIPECAT_DAILY_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error('PIPECAT_DAILY_API_KEY is not configured for Daily transport.');
+    }
+
+    const domain = process.env.PIPECAT_DAILY_DOMAIN?.trim().replace(/\/+$/, '');
+    if (!domain) {
+      throw new Error('PIPECAT_DAILY_DOMAIN is not configured for Daily transport.');
+    }
+
+    const serviceUrl = process.env.PIPECAT_SERVICE_URL?.trim().replace(/\/+$/, '');
+    if (!serviceUrl) {
+      throw new Error('PIPECAT_SERVICE_URL is not configured for Daily transport.');
+    }
+
+    return {
+      apiKey,
+      domain,
+      serviceUrl,
+    };
+  }
+
+  private async createDailyConnectParams(
+    session: InterviewSessionRecord,
+    config: {
+      apiKey: string;
+      domain: string;
+      serviceUrl: string;
+    },
+  ): Promise<DailyTransportConnectParams> {
+    const roomName = this.buildDailyRoomName(session.id);
+    const roomUrl = this.buildDailyRoomUrl(config.domain, roomName);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const roomExpirySeconds = nowSeconds + 60 * 60;
+    const tokenExpirySeconds = nowSeconds + 15 * 60;
+
+    await this.dailyApiRequest<{ name?: string; url?: string }>(
+      config.apiKey,
+      '/rooms',
+      {
+        name: roomName,
+        privacy: 'private',
+        properties: {
+          exp: roomExpirySeconds,
+          start_audio_off: false,
+          start_video_off: true,
+        },
+      },
+      [200, 409],
+    );
+
+    const tokenResponse = await this.dailyApiRequest<{ token?: string }>(config.apiKey, '/meeting-tokens', {
+      properties: {
+        room_name: roomName,
+        user_name: session.payload.user.name,
+        user_id: session.id.slice(0, 36),
+        exp: tokenExpirySeconds,
+        enable_screenshare: false,
+        start_audio_off: false,
+        start_video_off: true,
+      },
+    });
+
+    if (!tokenResponse.token?.trim()) {
+      throw new Error('Daily token provisioning failed.');
+    }
+
+    return {
+      url: roomUrl,
+      token: tokenResponse.token,
+    };
+  }
+
+  private async dailyApiRequest<TResponse>(
+    apiKey: string,
+    path: string,
+    body: Record<string, unknown>,
+    acceptedStatuses: number[] = [200],
+  ): Promise<TResponse> {
+    const response = await fetch(`https://api.daily.co/v1${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!acceptedStatuses.includes(response.status)) {
+      throw new Error(`Daily API request failed with status ${response.status}.`);
+    }
+
+    if (response.status === 409) {
+      return {} as TResponse;
+    }
+
+    return response.json() as Promise<TResponse>;
+  }
+
+  private buildDailyRoomName(sessionId: string): string {
+    return `pipecat-${sessionId.replace(/[^a-z0-9-]/gi, '').toLowerCase()}`;
+  }
+
+  private buildDailyRoomUrl(domain: string, roomName: string): string {
+    const normalizedDomain = domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    return `https://${normalizedDomain}/${roomName}`;
   }
 }
 
