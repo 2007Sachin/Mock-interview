@@ -59,18 +59,18 @@ Daily credentials are not needed for local websocket mode.
 
 ## Install and Run
 
-Preferred `uv` flow:
-
-```powershell
-uv sync
-uv run uvicorn app.main:app --host 0.0.0.0 --port 7860
-```
-
-Fallback if you use `requirements.txt` directly:
+Standard (Railway and local):
 
 ```powershell
 pip install -r requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 7860
+```
+
+With `uv` (local dev only):
+
+```powershell
+uv sync
+uv run uvicorn app.main:app --host 0.0.0.0 --port 7860
 ```
 
 ## Local Websocket Mode
@@ -123,6 +123,106 @@ Persistence rules:
 - Transcript events are idempotent by `eventId`.
 - Finalized turns are idempotent by `turnId`.
 - React only persists manual fallback submissions, not Pipecat realtime events.
+
+## Railway Deployment
+
+Deploy as a second Railway service from the same GitHub repo.
+
+### Railway service configuration
+
+| Field | Value |
+|-------|-------|
+| Name | pathwisse-voice-agent |
+| GitHub repo | `MahammadWahab540/pathwisse-mockinterview` |
+| Branch | `main` |
+| Root directory | `services/voice-agent` |
+| Builder | Nixpacks (auto-detects Python via `pyproject.toml`) |
+| Start command | `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Health check path | `/health` |
+
+The `railway.json` file in this directory sets the start command and health check path automatically. If Railway does not pick it up, set the start command manually in the Railway UI:
+
+```
+python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
+```
+
+For local development with `uv` installed, use `uv run uvicorn ...` instead.
+
+### Railway environment variables
+
+```env
+NODE_API_BASE_URL=https://pathwisse-mockinterview-production-e582.up.railway.app
+PIPECAT_CONNECT_SECRET=<same-secret-as-node-service>
+
+VOICE_TRANSPORT=websocket
+
+STT_PROVIDER=whisper
+WHISPER_MODEL=base
+OPENAI_API_KEY=
+OPENAI_STT_MODEL=gpt-4o-transcribe
+
+LLM_PROVIDER=mistral
+MISTRAL_API_KEY=
+MISTRAL_LLM_MODEL=mistral-small-latest
+MISTRAL_TEMPERATURE=0.4
+MISTRAL_MAX_TOKENS=700
+
+TTS_PROVIDER=kokoro_browser
+PORT=${{PORT}}
+```
+
+Key rules:
+- `PIPECAT_CONNECT_SECRET` must match the Node/React Railway service.
+- `NODE_API_BASE_URL` must point to the public Node/React Railway domain.
+- Set `PIPECAT_SERVICE_URL=https://<this-service-domain>` on the Node service after this service is deployed.
+
+### Health check
+
+After deployment visit:
+
+```
+GET https://<voice-agent-railway-domain>/health
+```
+
+Expected response:
+
+```json
+{ "success": true, "data": { "service": "lumina-voice-agent-service", "status": "ok" } }
+```
+
+### Node/React service env (update after voice-agent is deployed)
+
+```env
+PIPECAT_SERVICE_URL=https://<voice-agent-railway-domain>
+PIPECAT_CONNECT_SECRET=<same-secret>
+VOICE_AGENT_PROVIDER=pipecat
+VOICE_TRANSPORT=websocket
+VITE_VOICE_AGENT_PROVIDER=pipecat
+VITE_TTS_PROVIDER=kokoro
+VITE_VOICE_TRANSPORT=websocket
+VITE_KOKORO_MODEL_ID=onnx-community/Kokoro-82M-v1.0-ONNX
+VITE_KOKORO_DTYPE=q8
+VITE_KOKORO_DEVICE=wasm
+VITE_KOKORO_VOICE=af_heart
+```
+
+Redeploy the Node/React service after setting `VITE_*` vars — Vite rebuilds with new build-time constants.
+
+### Full deploy sequence
+
+1. Deploy Node/React service from root `/`.
+2. Deploy this Python service from `services/voice-agent`.
+3. Set Python service env (see above).
+4. Visit `/health` — confirm `"status": "ok"`.
+5. Copy Python Railway domain.
+6. Set `PIPECAT_SERVICE_URL` on the Node service.
+7. Set `VITE_VOICE_AGENT_PROVIDER=pipecat` and `VITE_TTS_PROVIDER=kokoro` on Node.
+8. Redeploy Node/React.
+9. Create a new interview session.
+10. Open the interview link and complete mic/camera/speaker onboarding.
+11. Confirm Pipecat panel connects.
+12. Confirm assistant text is spoken by browser Kokoro.
+13. Confirm transcript/turn events persist without crashing.
 
 ## Verification
 
