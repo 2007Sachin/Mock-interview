@@ -225,6 +225,54 @@ test('SessionService.complete falls back to ScoringService when Mistral generati
   });
 });
 
+test('SessionService.complete uses Pipecat user turns for heuristic fallback when legacy answers are absent', async () => {
+  const tokenService = new TokenService();
+  const sessionToken = 'session-token';
+  const store = createStore({
+    session: createSession(tokenService, sessionToken),
+    turns: [
+      createTurn({
+        turnId: 'turn-a',
+        role: 'assistant',
+        stage: 'behavioral',
+        question: 'Tell me about a time you learned quickly.',
+        text: 'Tell me about a time you learned quickly.',
+      }),
+      createTurn({
+        turnId: 'turn-b',
+        role: 'user',
+        stage: 'behavioral',
+        question: 'Tell me about a time you learned quickly.',
+        text: 'I learned a new service quickly, aligned the team, and improved the result.',
+      }),
+    ],
+  });
+
+  const service = new SessionService(
+    store,
+    tokenService,
+    {} as never,
+    new ScoringService(),
+    { send: async () => undefined } as never,
+    'http://localhost:5174',
+    {
+      generateReport: async () => {
+        throw new MistralInterviewServiceError('timeout', 'Timed out.');
+      },
+    },
+  );
+
+  await withEnv({
+    LLM_PROVIDER: 'mistral',
+    MISTRAL_API_KEY: 'test-key',
+  }, async () => {
+    const report = await service.complete(store.session.id, sessionToken);
+    assert.ok(report.communicationScore && report.communicationScore > 55);
+    assert.ok(report.behavioralScore && report.behavioralScore > 60);
+    assert.equal(report.stageScores.behavioral, report.behavioralScore);
+  });
+});
+
 function createGenerationInput(): InterviewReportGenerationInput {
   const session = createSession(new TokenService(), 'unused-token');
   return {

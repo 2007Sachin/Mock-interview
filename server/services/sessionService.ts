@@ -331,25 +331,35 @@ export class SessionService {
     turns: InterviewTurnRecord[],
     transcriptEvents: InterviewTranscriptEventRecord[],
   ): Promise<InterviewReportDraft> {
+    const heuristicAnswers = selectHeuristicAnswers(answers, turns);
     if (!this.shouldUseMistralReporting() || !this.reportGenerator) {
-      return this.scoringService.score(session, answers);
+      return this.scoringService.score(session, heuristicAnswers);
     }
 
     try {
-      return await this.reportGenerator.generateReport({
+      const report = await this.reportGenerator.generateReport({
         session,
         answers: selectReportAnswers(answers, turns),
         turns,
         transcriptEvents,
       });
+      console.info('[pathwisse-mockinterview] Interview report generated.', {
+        sessionId: session.id,
+        reportProvider: 'mistral',
+        reportModel: process.env.MISTRAL_LLM_MODEL?.trim() || 'mistral-small-latest',
+        fallbackUsed: false,
+      });
+      return report;
     } catch (error) {
       const reason = error instanceof MistralInterviewServiceError ? error.code : 'unknown';
       console.warn('[pathwisse-mockinterview] Falling back to heuristic scoring.', {
         sessionId: session.id,
-        provider: 'mistral',
-        reason,
+        reportProvider: 'mistral',
+        reportModel: process.env.MISTRAL_LLM_MODEL?.trim() || 'mistral-small-latest',
+        fallbackUsed: true,
+        fallbackReason: reason,
       });
-      return this.scoringService.score(session, answers);
+      return this.scoringService.score(session, heuristicAnswers);
     }
   }
 
@@ -726,6 +736,34 @@ function selectReportAnswers(
 
     return !userTurnTexts.has(normalizedAnswer);
   });
+}
+
+function selectHeuristicAnswers(
+  answers: InterviewAnswerRecord[],
+  turns: InterviewTurnRecord[],
+): InterviewAnswerRecord[] {
+  if (turns.length === 0) {
+    return answers;
+  }
+
+  const reportAnswers = selectReportAnswers(answers, turns);
+  const syntheticTurnAnswers = turns
+    .filter((turn) => turn.role === 'user' && normalizeComparableText(turn.text))
+    .map((turn) => ({
+      id: `synthetic-${turn.turnId}`,
+      sessionId: turn.sessionId,
+      stage: turn.stage ?? 'interview',
+      question: turn.question ?? 'Interview response',
+      answerTranscript: turn.text,
+      audioUrl: null,
+      score: null,
+      feedback: null,
+      createdAt: turn.createdAt,
+    }));
+
+  return [...reportAnswers, ...syntheticTurnAnswers].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
 }
 
 function normalizeComparableText(value: string): string {
