@@ -83,6 +83,10 @@ VITE_KOKORO_DEVICE=wasm
 VITE_KOKORO_VOICE=af_heart
 ```
 
+Legacy compatibility note:
+
+- `PIPECAT_CONNECT_URL` and `VOICE_AGENT_BASE_URL` are still accepted as fallback aliases for `PIPECAT_SERVICE_URL`, but new setups should use `PIPECAT_SERVICE_URL`.
+
 Required `services/voice-agent/.env` alignment:
 
 ```env
