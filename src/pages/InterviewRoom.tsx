@@ -1,5 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
+import { InterviewOnboarding } from '@/components/InterviewOnboarding';
 import { InterviewQuestion } from '@/components/InterviewQuestion';
 import { PipecatVoicePanel } from '@/components/PipecatVoicePanel';
 import { StageProgress } from '@/components/StageProgress';
@@ -15,6 +16,7 @@ export function InterviewRoom() {
   const navigate = useNavigate();
   const sessionToken = sessionStorage.getItem(formatSessionStorageKey(sessionId));
   const { context } = useInterviewSession(sessionId, sessionToken);
+  const [onboardingComplete, setOnboardingComplete] = useState(false);
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [questionNumber, setQuestionNumber] = useState(1);
@@ -118,6 +120,23 @@ export function InterviewRoom() {
     );
   }
 
+  if (!onboardingComplete) {
+    return (
+      <div className="min-h-screen bg-slate-950">
+        <div className="mx-auto max-w-5xl px-6 py-8">
+          <div className="space-y-1 mb-6">
+            <p className="text-sm uppercase tracking-[0.4em] text-emerald-200">Live Mock Interview</p>
+            <h1 className="text-2xl font-bold text-white">
+              {context.data?.roleTitle ?? 'Loading role…'}
+            </h1>
+            <p className="text-slate-400 text-sm">{context.data?.company ?? ''}</p>
+          </div>
+        </div>
+        <InterviewOnboarding onComplete={() => setOnboardingComplete(true)} />
+      </div>
+    );
+  }
+
   return (
     <div className="mx-auto min-h-screen max-w-5xl space-y-6 px-6 py-10">
       <div className="space-y-2">
@@ -144,12 +163,7 @@ export function InterviewRoom() {
       ) : null}
 
       {env.voiceAgentProvider === 'browser' ? (
-        <>
-          <p className="rounded-2xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
-            Browser fallback mode is enabled. Production mode uses Pipecat + Mistral + Kokoro.
-          </p>
-          <VoiceAgentPanel question={currentQuestion} onSubmit={handleSubmitAnswer} />
-        </>
+        <VoiceAgentPanel question={currentQuestion} onSubmit={handleSubmitAnswer} />
       ) : (
         <PipecatVoicePanel
           sessionId={sessionId}
