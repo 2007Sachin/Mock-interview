@@ -1,15 +1,19 @@
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
+from __future__ import annotations
+
 import time
 import uuid
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from app.api.health import router as health_router
 from app.api.sessions import router as sessions_router
+from app.core.config import settings
 
 app = FastAPI(
     title="Lumina Voice Agent Service",
-    description="Pipecat-compatible realtime mock interview runtime.",
-    version="0.1.0",
+    description="Local websocket voice agent runtime for Pathwisse interview sessions.",
+    version="0.6.0",
 )
 
 app.add_middleware(
@@ -27,6 +31,7 @@ async def request_observability(request, call_next):
     response = await call_next(request)
     response.headers["x-request-id"] = request_id
     response.headers["x-response-time-ms"] = f"{(time.perf_counter() - started) * 1000:.2f}"
+    response.headers["x-voice-transport"] = settings.voice_transport
     return response
 
 

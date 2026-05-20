@@ -1,11 +1,26 @@
 import {
   InterviewReport,
   InterviewSessionContext,
+  InterviewVoiceConnectPayload,
+  ManualInterviewTurnInput,
   NextQuestionResponse,
   SessionVerifyResponse,
 } from '@/types/interview';
 
-const apiBaseUrl = (import.meta.env.VITE_MOCK_INTERVIEW_API_URL as string | undefined) ?? 'http://localhost:4174';
+function getApiBaseUrl() {
+  const configuredBaseUrl = (import.meta.env.VITE_MOCK_INTERVIEW_API_URL as string | undefined)?.trim();
+  if (configuredBaseUrl) {
+    return configuredBaseUrl;
+  }
+
+  if (typeof window !== 'undefined' && window.location.origin) {
+    return window.location.origin;
+  }
+
+  return '';
+}
+
+const apiBaseUrl = getApiBaseUrl();
 
 function getHeaders(sessionToken?: string): HeadersInit {
   const headers: HeadersInit = {
@@ -19,13 +34,43 @@ function getHeaders(sessionToken?: string): HeadersInit {
   return headers;
 }
 
+export class ApiRequestError extends Error {
+  constructor(
+    message: string,
+    public readonly status: number,
+    public readonly path: string,
+  ) {
+    super(message);
+    this.name = 'ApiRequestError';
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const response = await fetch(`${apiBaseUrl}${path}`, init);
-  const payload = await response.json().catch(() => ({}));
+  const rawBody = await response.text();
+  const hasBody = rawBody.trim().length > 0;
+  let payload: unknown = null;
+
+  if (hasBody) {
+    try {
+      payload = JSON.parse(rawBody) as unknown;
+    } catch {
+      if (response.ok) {
+        throw new Error(`Received a malformed JSON response from ${path}.`);
+      }
+    }
+  }
 
   if (!response.ok) {
-    const message = typeof payload?.message === 'string' ? payload.message : 'Request failed.';
-    throw new Error(message);
+    const message =
+      typeof payload === 'object' && payload !== null && 'message' in payload && typeof payload.message === 'string'
+        ? payload.message
+        : 'Request failed.';
+    throw new ApiRequestError(message, response.status, path);
+  }
+
+  if (!hasBody || payload === null) {
+    throw new Error(`Received an empty JSON response from ${path}.`);
   }
 
   return payload as T;
@@ -85,5 +130,20 @@ export function completeInterview(sessionId: string, sessionToken: string) {
 export function getInterviewReport(sessionId: string, sessionToken: string) {
   return request<InterviewReport>(`/api/interview-sessions/${sessionId}/report`, {
     headers: getHeaders(sessionToken),
+  });
+}
+
+export function connectInterviewVoice(sessionId: string, sessionToken: string) {
+  return request<InterviewVoiceConnectPayload>(`/api/interview-sessions/${sessionId}/voice/connect`, {
+    method: 'POST',
+    headers: getHeaders(sessionToken),
+  });
+}
+
+export function submitManualInterviewTurn(sessionId: string, sessionToken: string, input: ManualInterviewTurnInput) {
+  return request<{ ok: true }>(`/api/interview-sessions/${sessionId}/voice/manual-turn`, {
+    method: 'POST',
+    headers: getHeaders(sessionToken),
+    body: JSON.stringify(input),
   });
 }

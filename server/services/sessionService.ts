@@ -1,10 +1,33 @@
 import { randomUUID } from 'crypto';
 import { SessionStore } from '../db/store.js';
-import { InterviewAnswerRecord, InterviewPayload, InterviewReportRecord, InterviewSessionRecord } from '../types.js';
+import {
+  InterviewAnswerRecord,
+  DailyInterviewVoiceConnectPayload,
+  DailyTransportConnectParams,
+  InterviewPayload,
+  InterviewReportDraft,
+  InterviewReportRecord,
+  InterviewSessionRecord,
+  InterviewTranscriptEventRecord,
+  InterviewTranscriptEventInput,
+  InterviewTurnRecord,
+  InterviewTurnInput,
+  InterviewVoiceConnectPayload,
+  InternalInterviewVoiceContext,
+  TranscriptEventRole,
+  TranscriptEventType,
+  VoiceTransport,
+  WebsocketInterviewVoiceConnectPayload,
+} from '../types.js';
 import { TokenService } from './tokenService.js';
 import { QuestionService } from './questionService.js';
 import { ScoringService } from './scoringService.js';
 import { CallbackService } from './callbackService.js';
+import { InterviewReportGenerator, MistralInterviewServiceError } from './mistralInterviewService.js';
+
+type SessionWriteAuth =
+  | { type: 'session'; token: string }
+  | { type: 'internal' };
 
 export class SessionService {
   constructor(
@@ -14,6 +37,7 @@ export class SessionService {
     private readonly scoringService: ScoringService,
     private readonly callbackService: CallbackService,
     private readonly publicUrl: string,
+    private readonly reportGenerator: InterviewReportGenerator | null = null,
   ) {}
 
   async createSession(payload: InterviewPayload) {
@@ -122,6 +146,83 @@ export class SessionService {
     };
   }
 
+  async createVoiceConnectPayload(sessionId: string, sessionToken: string): Promise<InterviewVoiceConnectPayload> {
+    const session = await this.requireAuthorizedSession(sessionId, sessionToken);
+    const transport = this.resolveVoiceTransport();
+    const turns = await this.store.listTurns(session.id);
+    const lastAssistantTurn = [...turns].reverse().find((turn) => turn.role === 'assistant');
+    const currentStage =
+      lastAssistantTurn?.stage ??
+      session.payload.interviewConfig.stages[0] ??
+      null;
+    const currentQuestion = lastAssistantTurn?.question ?? null;
+    const basePayload = {
+      sessionId: session.id,
+      candidateName: session.payload.user.name,
+      roleTitle: session.payload.opportunity.title,
+      company: session.payload.opportunity.company,
+      stages: session.payload.interviewConfig.stages,
+      transport,
+      currentStage,
+      currentQuestion,
+    } as const;
+
+    if (transport === 'websocket') {
+      const signedToken = this.tokenService.createSignedVoiceToken({
+        sessionId: session.id,
+        transport,
+      });
+
+      const payload: WebsocketInterviewVoiceConnectPayload = {
+        ...basePayload,
+        transport,
+        voiceToken: signedToken.token,
+        pipecatConnectUrl: this.resolvePipecatConnectUrl(session.id, transport),
+      };
+      return payload;
+    }
+
+    const payload: DailyInterviewVoiceConnectPayload = {
+      ...basePayload,
+      transport,
+      connectParams: null,
+      setupError: null,
+    };
+
+    const dailyConfig = this.requireDailyTransportConfig();
+    try {
+      payload.connectParams = await this.createDailyConnectParams(session, dailyConfig);
+      return payload;
+    } catch {
+      payload.setupError =
+        'Daily transport is configured, but Daily room provisioning is unavailable. Verify the server-side Daily configuration and try again.';
+      return payload;
+    }
+  }
+
+  async getInternalVoiceContext(sessionId: string): Promise<InternalInterviewVoiceContext> {
+    const session = await this.requireSession(sessionId);
+    const answers = await this.store.listAnswers(sessionId);
+
+    return {
+      sessionId: session.id,
+      status: session.status,
+      transport: this.resolveVoiceTransport(),
+      requestId: session.payload.requestId,
+      candidate: session.payload.user,
+      opportunity: session.payload.opportunity,
+      resume: session.payload.resume,
+      interviewConfig: session.payload.interviewConfig,
+      answers: answers.map((answer) => ({
+        stage: answer.stage,
+        question: answer.question,
+        answerTranscript: answer.answerTranscript,
+        audioUrl: answer.audioUrl,
+        createdAt: answer.createdAt,
+      })),
+    };
+  }
+
   async nextQuestion(sessionId: string, sessionToken: string, stage: string) {
     const session = await this.requireAuthorizedSession(sessionId, sessionToken);
     const answers = await this.store.listAnswers(sessionId);
@@ -171,7 +272,9 @@ export class SessionService {
   async complete(sessionId: string, sessionToken: string): Promise<InterviewReportRecord & { status: 'completed' }> {
     const session = await this.requireAuthorizedSession(sessionId, sessionToken);
     const answers = await this.store.listAnswers(sessionId);
-    const scored = this.scoringService.score(session, answers);
+    const turns = await this.store.listTurns(sessionId);
+    const transcriptEvents = await this.store.listTranscriptEvents(sessionId);
+    const scored = await this.generateInterviewReport(session, answers, turns, transcriptEvents);
     const report = await this.store.upsertReport({
       sessionId,
       ...scored,
@@ -222,6 +325,78 @@ export class SessionService {
     return { ...report, status: 'completed' as const };
   }
 
+  private async generateInterviewReport(
+    session: InterviewSessionRecord,
+    answers: InterviewAnswerRecord[],
+    turns: InterviewTurnRecord[],
+    transcriptEvents: InterviewTranscriptEventRecord[],
+  ): Promise<InterviewReportDraft> {
+    const heuristicAnswers = selectHeuristicAnswers(answers, turns);
+    if (!this.shouldUseMistralReporting() || !this.reportGenerator) {
+      return this.scoringService.score(session, heuristicAnswers);
+    }
+
+    try {
+      const report = await this.reportGenerator.generateReport({
+        session,
+        answers: selectReportAnswers(answers, turns),
+        turns,
+        transcriptEvents,
+      });
+      console.info('[pathwisse-mockinterview] Interview report generated.', {
+        sessionId: session.id,
+        reportProvider: 'mistral',
+        reportModel: process.env.MISTRAL_LLM_MODEL?.trim() || 'mistral-small-latest',
+        fallbackUsed: false,
+      });
+      return report;
+    } catch (error) {
+      const reason = error instanceof MistralInterviewServiceError ? error.code : 'unknown';
+      console.warn('[pathwisse-mockinterview] Falling back to heuristic scoring.', {
+        sessionId: session.id,
+        reportProvider: 'mistral',
+        reportModel: process.env.MISTRAL_LLM_MODEL?.trim() || 'mistral-small-latest',
+        fallbackUsed: true,
+        fallbackReason: reason,
+      });
+      return this.scoringService.score(session, heuristicAnswers);
+    }
+  }
+
+  async recordTranscriptEvent(
+    sessionId: string,
+    auth: SessionWriteAuth,
+    input: InterviewTranscriptEventInput,
+  ): Promise<{ status: 200; body: { ok: true; event: InterviewTranscriptEventRecord } }> {
+    await this.requireWriteAuthorizedSession(sessionId, auth);
+    const event = normalizeTranscriptEventInput(sessionId, input);
+    const savedEvent = await this.store.upsertTranscriptEvent(event);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        event: savedEvent,
+      },
+    };
+  }
+
+  async recordTurn(
+    sessionId: string,
+    auth: SessionWriteAuth,
+    input: InterviewTurnInput,
+  ): Promise<{ status: 200; body: { ok: true; turn: InterviewTurnRecord } }> {
+    await this.requireWriteAuthorizedSession(sessionId, auth);
+    const turn = normalizeTurnInput(sessionId, input);
+    const savedTurn = await this.store.upsertTurn(turn);
+    return {
+      status: 200,
+      body: {
+        ok: true,
+        turn: savedTurn,
+      },
+    };
+  }
+
   private async requireSession(sessionId: string) {
     const session = await this.store.findSession(sessionId);
     if (!session) {
@@ -238,6 +413,14 @@ export class SessionService {
     return session;
   }
 
+  private async requireWriteAuthorizedSession(sessionId: string, auth: SessionWriteAuth) {
+    if (auth.type === 'internal') {
+      return this.requireSession(sessionId);
+    }
+
+    return this.requireAuthorizedSession(sessionId, auth.token);
+  }
+
   private async setSessionStatus(sessionId: string, status: InterviewSessionRecord['status'], errorMessage: string | null) {
     await this.store.updateSession(sessionId, (current) => ({
       ...current,
@@ -246,10 +429,347 @@ export class SessionService {
       completedAt: status === 'failed' || status === 'expired' ? new Date().toISOString() : current.completedAt,
     }));
   }
+
+  private resolveVoiceTransport(): VoiceTransport {
+    const configuredTransport = (process.env.VOICE_TRANSPORT ?? 'websocket').trim();
+    if (configuredTransport === 'websocket' || configuredTransport === 'daily') {
+      return configuredTransport;
+    }
+    throw new Error(`Unsupported VOICE_TRANSPORT "${configuredTransport}".`);
+  }
+
+  private resolvePipecatConnectUrl(sessionId: string, transport: VoiceTransport): string {
+    const configuredUrl =
+      process.env.PIPECAT_SERVICE_URL?.trim() ||
+      process.env.PIPECAT_CONNECT_URL?.trim() ||
+      process.env.VOICE_AGENT_BASE_URL?.trim();
+
+    if (!configuredUrl) {
+      throw new Error('PIPECAT_SERVICE_URL, PIPECAT_CONNECT_URL, or VOICE_AGENT_BASE_URL must be configured.');
+    }
+
+    const normalizedBaseUrl = configuredUrl.replace(/\/+$/, '');
+    if (transport === 'websocket') {
+      return `${normalizedBaseUrl.replace(/^http/i, 'ws')}/v1/realtime/${sessionId}`;
+    }
+
+    return `${normalizedBaseUrl}/v1/connect/${sessionId}`;
+  }
+
+  private requireDailyTransportConfig(): {
+    apiKey: string;
+    domain: string;
+    serviceUrl: string;
+  } {
+    const roomProvider = (process.env.PIPECAT_ROOM_PROVIDER ?? 'daily').trim();
+    if (roomProvider !== 'daily') {
+      throw new Error('PIPECAT_ROOM_PROVIDER is not configured for Daily transport.');
+    }
+
+    const apiKey = process.env.PIPECAT_DAILY_API_KEY?.trim();
+    if (!apiKey) {
+      throw new Error('PIPECAT_DAILY_API_KEY is not configured for Daily transport.');
+    }
+
+    const domain = process.env.PIPECAT_DAILY_DOMAIN?.trim().replace(/\/+$/, '');
+    if (!domain) {
+      throw new Error('PIPECAT_DAILY_DOMAIN is not configured for Daily transport.');
+    }
+
+    const serviceUrl = process.env.PIPECAT_SERVICE_URL?.trim().replace(/\/+$/, '');
+    if (!serviceUrl) {
+      throw new Error('PIPECAT_SERVICE_URL is not configured for Daily transport.');
+    }
+
+    return {
+      apiKey,
+      domain,
+      serviceUrl,
+    };
+  }
+
+  private async createDailyConnectParams(
+    session: InterviewSessionRecord,
+    config: {
+      apiKey: string;
+      domain: string;
+      serviceUrl: string;
+    },
+  ): Promise<DailyTransportConnectParams> {
+    const roomName = this.buildDailyRoomName(session.id);
+    const roomUrl = this.buildDailyRoomUrl(config.domain, roomName);
+    const nowSeconds = Math.floor(Date.now() / 1000);
+    const roomExpirySeconds = nowSeconds + 60 * 60;
+    const tokenExpirySeconds = nowSeconds + 15 * 60;
+
+    await this.dailyApiRequest<{ name?: string; url?: string }>(
+      config.apiKey,
+      '/rooms',
+      {
+        name: roomName,
+        privacy: 'private',
+        properties: {
+          exp: roomExpirySeconds,
+          start_audio_off: false,
+          start_video_off: true,
+        },
+      },
+      [200, 409],
+    );
+
+    const tokenResponse = await this.dailyApiRequest<{ token?: string }>(config.apiKey, '/meeting-tokens', {
+      properties: {
+        room_name: roomName,
+        user_name: session.payload.user.name,
+        user_id: session.id.slice(0, 36),
+        exp: tokenExpirySeconds,
+        enable_screenshare: false,
+        start_audio_off: false,
+        start_video_off: true,
+      },
+    });
+
+    if (!tokenResponse.token?.trim()) {
+      throw new Error('Daily token provisioning failed.');
+    }
+
+    return {
+      url: roomUrl,
+      token: tokenResponse.token,
+    };
+  }
+
+  private async dailyApiRequest<TResponse>(
+    apiKey: string,
+    path: string,
+    body: Record<string, unknown>,
+    acceptedStatuses: number[] = [200],
+  ): Promise<TResponse> {
+    const response = await fetch(`https://api.daily.co/v1${path}`, {
+      method: 'POST',
+      headers: {
+        authorization: `Bearer ${apiKey}`,
+        'content-type': 'application/json',
+      },
+      body: JSON.stringify(body),
+    });
+
+    if (!acceptedStatuses.includes(response.status)) {
+      throw new Error(`Daily API request failed with status ${response.status}.`);
+    }
+
+    if (response.status === 409) {
+      return {} as TResponse;
+    }
+
+    return response.json() as Promise<TResponse>;
+  }
+
+  private buildDailyRoomName(sessionId: string): string {
+    return `pipecat-${sessionId.replace(/[^a-z0-9-]/gi, '').toLowerCase()}`;
+  }
+
+  private buildDailyRoomUrl(domain: string, roomName: string): string {
+    const normalizedDomain = domain.replace(/^https?:\/\//i, '').replace(/\/+$/, '');
+    return `https://${normalizedDomain}/${roomName}`;
+  }
+
+  private shouldUseMistralReporting(): boolean {
+    const provider = (process.env.LLM_PROVIDER ?? 'mock').trim().toLowerCase();
+    const apiKey = process.env.MISTRAL_API_KEY?.trim();
+    return provider === 'mistral' && Boolean(apiKey);
+  }
 }
 
 function generateAccessCode(): string {
   const left = Math.floor(100 + Math.random() * 900);
   const right = Math.floor(100 + Math.random() * 900);
   return `${left}-${right}`;
+}
+
+function normalizeTranscriptEventInput(
+  sessionId: string,
+  input: InterviewTranscriptEventInput,
+): Omit<InterviewTranscriptEventRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTranscriptEventRecord, 'createdAt'>> {
+  const eventId = requiredNonEmptyString(input.eventId, 'eventId');
+  const type = parseTranscriptEventType(input.type);
+  const text = normalizeNullableText(input.text);
+
+  if (eventTypeRequiresText(type) && !text) {
+    throw new Error(`Invalid transcript event text. Event type "${type}" requires non-empty text.`);
+  }
+
+  return {
+    sessionId,
+    eventId,
+    turnId: normalizeOptionalString(input.turnId),
+    role: resolveTranscriptEventRole(type),
+    type,
+    stage: normalizeOptionalString(input.stage),
+    question: normalizeOptionalString(input.question),
+    text,
+    metadata: normalizeMetadata(input.metadata),
+    createdAt: normalizeCreatedAt(input.createdAt),
+  };
+}
+
+function normalizeTurnInput(
+  sessionId: string,
+  input: InterviewTurnInput,
+): Omit<InterviewTurnRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTurnRecord, 'createdAt'>> {
+  return {
+    sessionId,
+    turnId: requiredNonEmptyString(input.turnId, 'turnId'),
+    role: parseTurnRole(input.role),
+    stage: normalizeOptionalString(input.stage),
+    question: normalizeOptionalString(input.question),
+    text: requiredNonEmptyString(input.input, 'turn text'),
+    metadata: normalizeMetadata(input.metadata),
+    createdAt: normalizeCreatedAt(input.createdAt),
+  };
+}
+
+function requiredNonEmptyString(value: string | undefined, fieldName: string): string {
+  const normalized = value?.trim();
+  if (!normalized) {
+    throw new Error(`Invalid ${fieldName}.`);
+  }
+  return normalized;
+}
+
+function normalizeOptionalString(value: string | undefined): string | null {
+  const normalized = value?.trim();
+  return normalized ? normalized : null;
+}
+
+function normalizeNullableText(value: string | undefined): string | null {
+  if (value == null) {
+    return null;
+  }
+
+  const normalized = value.trim();
+  return normalized ? normalized : null;
+}
+
+function normalizeMetadata(value: Record<string, unknown> | undefined): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return value;
+}
+
+function normalizeCreatedAt(value: string | undefined): string | undefined {
+  if (!value) {
+    return undefined;
+  }
+
+  const parsed = new Date(value);
+  if (Number.isNaN(parsed.getTime())) {
+    throw new Error('Invalid createdAt timestamp.');
+  }
+
+  return parsed.toISOString();
+}
+
+function parseTranscriptEventType(value: string): TranscriptEventType {
+  switch (value) {
+    case 'assistant_text':
+    case 'error':
+    case 'interview_complete':
+    case 'user_final_transcript':
+    case 'user_interim_transcript':
+      return value;
+    default:
+      throw new Error('Invalid transcript event type.');
+  }
+}
+
+function parseTurnRole(value: string | undefined): InterviewTurnRecord['role'] {
+  switch (value) {
+    case undefined:
+    case 'user':
+      return 'user';
+    case 'assistant':
+      return 'assistant';
+    default:
+      throw new Error('Invalid turn role.');
+  }
+}
+
+function eventTypeRequiresText(value: TranscriptEventType): boolean {
+  return value === 'assistant_text' || value === 'user_final_transcript' || value === 'user_interim_transcript';
+}
+
+function resolveTranscriptEventRole(value: TranscriptEventType): TranscriptEventRole {
+  switch (value) {
+    case 'assistant_text':
+      return 'assistant';
+    case 'error':
+    case 'interview_complete':
+      return 'system';
+    case 'user_final_transcript':
+    case 'user_interim_transcript':
+      return 'user';
+  }
+}
+
+function selectReportAnswers(
+  answers: InterviewAnswerRecord[],
+  turns: InterviewTurnRecord[],
+): InterviewAnswerRecord[] {
+  if (turns.length === 0) {
+    return answers;
+  }
+
+  const userTurnTexts = new Set(
+    turns
+      .filter((turn) => turn.role === 'user')
+      .map((turn) => normalizeComparableText(turn.text))
+      .filter(Boolean),
+  );
+
+  return answers.filter((answer) => {
+    const normalizedAnswer = normalizeComparableText(answer.answerTranscript);
+    if (!normalizedAnswer) {
+      return true;
+    }
+
+    return !userTurnTexts.has(normalizedAnswer);
+  });
+}
+
+function selectHeuristicAnswers(
+  answers: InterviewAnswerRecord[],
+  turns: InterviewTurnRecord[],
+): InterviewAnswerRecord[] {
+  if (turns.length === 0) {
+    return answers;
+  }
+
+  const reportAnswers = selectReportAnswers(answers, turns);
+  const syntheticTurnAnswers = turns
+    .filter((turn) => turn.role === 'user' && normalizeComparableText(turn.text))
+    .map((turn) => ({
+      id: `synthetic-${turn.turnId}`,
+      sessionId: turn.sessionId,
+      stage: turn.stage ?? 'interview',
+      question: turn.question ?? 'Interview response',
+      answerTranscript: turn.text,
+      audioUrl: null,
+      score: null,
+      feedback: null,
+      createdAt: turn.createdAt,
+    }));
+
+  return [...reportAnswers, ...syntheticTurnAnswers].sort((left, right) =>
+    left.createdAt.localeCompare(right.createdAt),
+  );
+}
+
+function normalizeComparableText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .replace(/\s+/g, ' ');
 }

@@ -1,61 +1,61 @@
-import base64
-import hashlib
-import hmac
-import json
-import time
+from __future__ import annotations
+
 from dataclasses import dataclass
+from datetime import UTC, datetime
 
 import jwt
 
 from app.core.config import settings
 
 
-def sign_payload(payload: dict) -> str:
-    body = json.dumps(payload, separators=(",", ":"), sort_keys=True).encode()
-    return hmac.new(settings.hmac_shared_secret.encode(), body, hashlib.sha256).hexdigest()
-
-
-def sign_callback_payload(payload: dict, timestamp: str) -> str:
-    body = json.dumps(payload, separators=(",", ":"), sort_keys=True)
-    message = f"{timestamp}.{body}".encode()
-    return hmac.new(settings.hmac_shared_secret.encode(), message, hashlib.sha256).hexdigest()
-
-
-def signed_callback_headers(payload: dict) -> dict[str, str]:
-    timestamp = time.strftime("%Y-%m-%dT%H:%M:%SZ", time.gmtime())
-    return {
-        "x-mi-timestamp": timestamp,
-        "x-mi-signature": sign_callback_payload(payload, timestamp),
-    }
+class VoiceTokenError(ValueError):
+    pass
 
 
 @dataclass(frozen=True)
-class VoiceToken:
-    voice_session_id: str
-    mock_interview_id: str
-    issued_at_ms: int
-    student_id: str | None = None
-    exp: int | None = None
+class VoiceConnectToken:
+    session_id: str
+    transport: str
+    nonce: str
+    iat: int
+    exp: int
+
+    @property
+    def expires_at(self) -> datetime:
+        return datetime.fromtimestamp(self.exp, tz=UTC)
 
 
-def parse_voice_session_token(token: str) -> VoiceToken:
-    if token.count(".") == 2:
-        payload = jwt.decode(token, settings.jwt_secret, algorithms=["HS256"])
-        voice_session_id = str(payload["voice_session_id"])
-        mock_interview_id = str(payload["mock_interview_id"])
-        issued_at_ms = int(payload.get("iat", int(time.time())) * 1000)
-        return VoiceToken(
-            voice_session_id=voice_session_id,
-            mock_interview_id=mock_interview_id,
-            issued_at_ms=issued_at_ms,
-            student_id=payload.get("student_id"),
-            exp=payload.get("exp"),
+def validate_voice_connect_token(token: str, expected_session_id: str) -> VoiceConnectToken:
+    try:
+        payload = jwt.decode(
+            token,
+            settings.pipecat_connect_secret,
+            algorithms=["HS256"],
+            options={"require": ["sessionId", "transport", "nonce", "iat", "exp"]},
         )
+    except jwt.ExpiredSignatureError as exc:
+        raise VoiceTokenError("Voice session authorization failed.") from exc
+    except jwt.InvalidTokenError as exc:
+        raise VoiceTokenError("Voice session authorization failed.") from exc
 
-    # Backward-compatible parsing only for old local sessions already minted before this migration.
-    decoded = base64.urlsafe_b64decode(token + "=" * (-len(token) % 4)).decode()
-    voice_session_id, mock_interview_id, issued_at = decoded.split(":")
-    issued_at_ms = int(issued_at)
-    if (time.time() * 1000) - issued_at_ms > settings.voice_session_ttl_seconds * 1000:
-        raise ValueError("Voice session token expired")
-    return VoiceToken(voice_session_id=voice_session_id, mock_interview_id=mock_interview_id, issued_at_ms=issued_at_ms)
+    try:
+        claims = VoiceConnectToken(
+            session_id=str(payload["sessionId"]).strip(),
+            transport=str(payload["transport"]).strip(),
+            nonce=str(payload["nonce"]).strip(),
+            iat=int(payload["iat"]),
+            exp=int(payload["exp"]),
+        )
+    except (KeyError, TypeError, ValueError) as exc:
+        raise VoiceTokenError("Voice session authorization failed.") from exc
+
+    if not claims.session_id or claims.session_id != expected_session_id:
+        raise VoiceTokenError("Voice session authorization failed.")
+
+    if claims.transport != settings.voice_transport:
+        raise VoiceTokenError("Voice session authorization failed.")
+
+    if claims.exp <= claims.iat:
+        raise VoiceTokenError("Voice session authorization failed.")
+
+    return claims

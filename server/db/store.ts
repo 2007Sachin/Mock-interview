@@ -6,18 +6,24 @@ import {
   InterviewAnswerRecord,
   InterviewReportRecord,
   InterviewSessionRecord,
+  InterviewTranscriptEventRecord,
+  InterviewTurnRecord,
 } from '../types.js';
 
 type DatabaseShape = {
   sessions: InterviewSessionRecord[];
   answers: InterviewAnswerRecord[];
   reports: InterviewReportRecord[];
+  transcriptEvents: InterviewTranscriptEventRecord[];
+  turns: InterviewTurnRecord[];
 };
 
 const defaultDb: DatabaseShape = {
   sessions: [],
   answers: [],
   reports: [],
+  transcriptEvents: [],
+  turns: [],
 };
 
 export interface SessionStore {
@@ -31,6 +37,14 @@ export interface SessionStore {
   listAnswers(sessionId: string): Promise<InterviewAnswerRecord[]>;
   upsertReport(report: Omit<InterviewReportRecord, 'id' | 'createdAt'>): Promise<InterviewReportRecord>;
   findReport(sessionId: string): Promise<InterviewReportRecord | null>;
+  upsertTranscriptEvent(
+    event: Omit<InterviewTranscriptEventRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTranscriptEventRecord, 'id' | 'createdAt'>>,
+  ): Promise<InterviewTranscriptEventRecord>;
+  upsertTurn(
+    turn: Omit<InterviewTurnRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTurnRecord, 'id' | 'createdAt'>>,
+  ): Promise<InterviewTurnRecord>;
+  listTranscriptEvents(sessionId: string): Promise<InterviewTranscriptEventRecord[]>;
+  listTurns(sessionId: string): Promise<InterviewTurnRecord[]>;
 }
 
 export function createSessionStore(args: {
@@ -124,6 +138,56 @@ class FileStore implements SessionStore {
   async findReport(sessionId: string): Promise<InterviewReportRecord | null> {
     const db = await this.load();
     return db.reports.find((item) => item.sessionId === sessionId) ?? null;
+  }
+
+  async upsertTranscriptEvent(
+    event: Omit<InterviewTranscriptEventRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTranscriptEventRecord, 'id' | 'createdAt'>>,
+  ): Promise<InterviewTranscriptEventRecord> {
+    const db = await this.load();
+    const existing = db.transcriptEvents.find((item) => item.eventId === event.eventId);
+    const nextEvent: InterviewTranscriptEventRecord = {
+      id: existing?.id ?? event.id ?? randomUUID(),
+      createdAt:
+        existing?.createdAt ?? event.createdAt ?? new Date().toISOString(),
+      ...event,
+    };
+    db.transcriptEvents = db.transcriptEvents.filter((item) => item.eventId !== event.eventId);
+    db.transcriptEvents.push(nextEvent);
+
+    await this.save(db);
+    return nextEvent;
+  }
+
+  async upsertTurn(
+    turn: Omit<InterviewTurnRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTurnRecord, 'id' | 'createdAt'>>,
+  ): Promise<InterviewTurnRecord> {
+    const db = await this.load();
+    const existing = db.turns.find((item) => item.turnId === turn.turnId);
+    const nextTurn: InterviewTurnRecord = {
+      id: existing?.id ?? turn.id ?? randomUUID(),
+      createdAt:
+        existing?.createdAt ?? turn.createdAt ?? new Date().toISOString(),
+      ...turn,
+    };
+    db.turns = db.turns.filter((item) => item.turnId !== turn.turnId);
+    db.turns.push(nextTurn);
+
+    await this.save(db);
+    return nextTurn;
+  }
+
+  async listTranscriptEvents(sessionId: string): Promise<InterviewTranscriptEventRecord[]> {
+    const db = await this.load();
+    return db.transcriptEvents
+      .filter((item) => item.sessionId === sessionId)
+      .sort(compareCreatedAtAsc);
+  }
+
+  async listTurns(sessionId: string): Promise<InterviewTurnRecord[]> {
+    const db = await this.load();
+    return db.turns
+      .filter((item) => item.sessionId === sessionId)
+      .sort(compareCreatedAtAsc);
   }
 }
 
@@ -325,6 +389,104 @@ class PostgresStore implements SessionStore {
     return result.rows[0] ? mapReportRow(result.rows[0]) : null;
   }
 
+  async upsertTranscriptEvent(
+    event: Omit<InterviewTranscriptEventRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTranscriptEventRecord, 'id' | 'createdAt'>>,
+  ): Promise<InterviewTranscriptEventRecord> {
+    await this.connect();
+    const result = await this.client.query(
+      `insert into interview_transcript_events (
+        id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at
+      ) values (
+        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11
+      )
+      on conflict (event_id) do update set
+        session_id = excluded.session_id,
+        turn_id = excluded.turn_id,
+        role = excluded.role,
+        type = excluded.type,
+        stage = excluded.stage,
+        question = excluded.question,
+        text = excluded.text,
+        metadata = excluded.metadata
+      returning id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at`,
+      [
+        event.id ?? randomUUID(),
+        event.sessionId,
+        event.eventId,
+        event.turnId,
+        event.role,
+        event.type,
+        event.stage,
+        event.question,
+        event.text,
+        JSON.stringify(event.metadata),
+        event.createdAt ?? new Date().toISOString(),
+      ],
+    );
+
+    return mapTranscriptEventRow(result.rows[0]);
+  }
+
+  async upsertTurn(
+    turn: Omit<InterviewTurnRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTurnRecord, 'id' | 'createdAt'>>,
+  ): Promise<InterviewTurnRecord> {
+    await this.connect();
+    const result = await this.client.query(
+      `insert into interview_turns (
+        id, session_id, turn_id, role, stage, question, text, metadata, created_at
+      ) values (
+        $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9
+      )
+      on conflict (turn_id) do update set
+        session_id = excluded.session_id,
+        role = excluded.role,
+        stage = excluded.stage,
+        question = excluded.question,
+        text = excluded.text,
+        metadata = excluded.metadata
+      returning id, session_id, turn_id, role, stage, question, text, metadata, created_at`,
+      [
+        turn.id ?? randomUUID(),
+        turn.sessionId,
+        turn.turnId,
+        turn.role,
+        turn.stage,
+        turn.question,
+        turn.text,
+        JSON.stringify(turn.metadata),
+        turn.createdAt ?? new Date().toISOString(),
+      ],
+    );
+
+    return mapTurnRow(result.rows[0]);
+  }
+
+  async listTranscriptEvents(sessionId: string): Promise<InterviewTranscriptEventRecord[]> {
+    await this.connect();
+    const result = await this.client.query(
+      `select id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at
+       from interview_transcript_events
+       where session_id = $1
+       order by created_at asc`,
+      [sessionId],
+    );
+
+    return result.rows.map(mapTranscriptEventRow);
+  }
+
+  async listTurns(sessionId: string): Promise<InterviewTurnRecord[]> {
+    await this.connect();
+    const result = await this.client.query(
+      `select id, session_id, turn_id, role, stage, question, text, metadata, created_at
+       from interview_turns
+       where session_id = $1
+       order by created_at asc`,
+      [sessionId],
+    );
+
+    return result.rows.map(mapTurnRow);
+  }
+
   private async connect(): Promise<void> {
     if (!this.connectPromise) {
       this.connectPromise = this.client.connect().then(() => undefined);
@@ -396,6 +558,36 @@ function mapReportRow(row: Record<string, unknown>): InterviewReportRecord {
   };
 }
 
+function mapTranscriptEventRow(row: Record<string, unknown>): InterviewTranscriptEventRecord {
+  return {
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    eventId: String(row.event_id),
+    turnId: nullableString(row.turn_id),
+    role: String(row.role) as InterviewTranscriptEventRecord['role'],
+    type: String(row.type) as InterviewTranscriptEventRecord['type'],
+    stage: nullableString(row.stage),
+    question: nullableString(row.question),
+    text: nullableString(row.text),
+    metadata: parseRecord(row.metadata),
+    createdAt: dateString(row.created_at),
+  };
+}
+
+function mapTurnRow(row: Record<string, unknown>): InterviewTurnRecord {
+  return {
+    id: String(row.id),
+    sessionId: String(row.session_id),
+    turnId: String(row.turn_id),
+    role: String(row.role) as InterviewTurnRecord['role'],
+    stage: nullableString(row.stage),
+    question: nullableString(row.question),
+    text: String(row.text),
+    metadata: parseRecord(row.metadata),
+    createdAt: dateString(row.created_at),
+  };
+}
+
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : value == null ? null : String(value);
 }
@@ -436,4 +628,16 @@ function parseStageScores(value: unknown): Record<string, number> {
   ]);
 
   return Object.fromEntries(entries);
+}
+
+function parseRecord(value: unknown): Record<string, unknown> {
+  if (!value || typeof value !== 'object' || Array.isArray(value)) {
+    return {};
+  }
+
+  return value as Record<string, unknown>;
+}
+
+function compareCreatedAtAsc<T extends { createdAt: string }>(left: T, right: T): number {
+  return left.createdAt.localeCompare(right.createdAt);
 }

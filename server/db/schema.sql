@@ -46,11 +46,49 @@ create table if not exists interview_reports (
   created_at timestamptz not null default now()
 );
 
+create table if not exists interview_turns (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references interview_sessions(id) on delete cascade,
+  turn_id text not null,
+  role text not null,
+  stage text null,
+  question text null,
+  text text not null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
+create table if not exists interview_transcript_events (
+  id uuid primary key default gen_random_uuid(),
+  session_id uuid not null references interview_sessions(id) on delete cascade,
+  event_id text not null,
+  turn_id text null,
+  role text not null,
+  type text not null,
+  stage text null,
+  question text null,
+  text text null,
+  metadata jsonb not null default '{}'::jsonb,
+  created_at timestamptz not null default now()
+);
+
 create unique index if not exists interview_reports_session_id_key
   on interview_reports(session_id);
 
+create unique index if not exists interview_turns_turn_id_key
+  on interview_turns(turn_id);
+
+create unique index if not exists interview_transcript_events_event_id_key
+  on interview_transcript_events(event_id);
+
 create index if not exists interview_answers_session_id_idx
   on interview_answers(session_id);
+
+create index if not exists interview_turns_session_id_created_at_idx
+  on interview_turns(session_id, created_at);
+
+create index if not exists interview_transcript_events_session_id_created_at_idx
+  on interview_transcript_events(session_id, created_at);
 
 create index if not exists interview_sessions_status_idx
   on interview_sessions(status);
