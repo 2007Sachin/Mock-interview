@@ -412,10 +412,7 @@ export class KokoroTtsService {
   private async loadModule() {
     this.modulePromise ??= (async () => {
       try {
-        // This repo still uses moduleResolution "Node", so TypeScript cannot see the
-        // browser bundle declaration file even though the runtime file exists.
-        // @ts-expect-error Deep browser entry has no local declaration under current TS resolution.
-        return (await import('kokoro-js/dist/kokoro.web.js')) as KokoroModule;
+        return (await import('kokoro-js')) as unknown as KokoroModule;
       } catch (error: unknown) {
         this.modulePromise = null;
         throw error;

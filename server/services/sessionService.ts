@@ -440,11 +440,12 @@ export class SessionService {
 
   private resolvePipecatConnectUrl(sessionId: string, transport: VoiceTransport): string {
     const configuredUrl =
+      process.env.PIPECAT_SERVICE_URL?.trim() ||
       process.env.PIPECAT_CONNECT_URL?.trim() ||
       process.env.VOICE_AGENT_BASE_URL?.trim();
 
     if (!configuredUrl) {
-      throw new Error('PIPECAT_CONNECT_URL or VOICE_AGENT_BASE_URL must be configured.');
+      throw new Error('PIPECAT_SERVICE_URL, PIPECAT_CONNECT_URL, or VOICE_AGENT_BASE_URL must be configured.');
     }
 
     const normalizedBaseUrl = configuredUrl.replace(/\/+$/, '');
