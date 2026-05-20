@@ -57,8 +57,7 @@ Both services share the same repo branch (`main`). Railway detects each service 
 | Branch | `main` |
 | Root directory | `services/voice-agent` |
 | Builder | Nixpacks (auto-detected Python via `pyproject.toml`) |
-| Start command | `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
-| Fallback start command | `pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Start command | `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
 | Health check path | `/health` |
 | Health check response | `{ "success": true, "data": { "service": "lumina-voice-agent-service", "status": "ok" } }` |
 
@@ -75,7 +74,7 @@ A `services/voice-agent/railway.json` file is committed to help Railway/Nixpacks
     "builder": "NIXPACKS"
   },
   "deploy": {
-    "startCommand": "uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT",
+    "startCommand": "python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT",
     "healthcheckPath": "/health",
     "healthcheckTimeout": 60,
     "restartPolicyType": "ON_FAILURE",
@@ -84,11 +83,7 @@ A `services/voice-agent/railway.json` file is committed to help Railway/Nixpacks
 }
 ```
 
-If `uv` is not available in the Nixpacks build, override in the Railway UI:
-
-```
-pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port $PORT
-```
+`python -m uvicorn` works in any standard Python environment without requiring `uv`. For local development with `uv` installed, `uv run uvicorn ...` is also fine.
 
 ---
 
@@ -233,7 +228,7 @@ The local websocket Pipecat runtime may fall through to a browser-facing transcr
 ## Task H — Manual deploy guide
 
 1. In Railway, create the Node/React service from `MahammadWahab540/pathwisse-mockinterview`, root `/`. Set its env. Deploy.
-2. In Railway, create a second service from the same repo, root `services/voice-agent`. Railway should auto-detect Python via `pyproject.toml`. Set the start command to `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT` if not picked up from `railway.json`.
+2. In Railway, create a second service from the same repo, root `services/voice-agent`. Railway should auto-detect Python via `pyproject.toml`. The `railway.json` sets the start command to `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`. Set it manually in the Railway UI if not picked up automatically.
 3. Set the Python service env (Task E above). Deploy.
 4. Visit `https://<voice-agent-railway-domain>/health`. Confirm: `{ "success": true, "data": { "service": "lumina-voice-agent-service", "status": "ok" } }`.
 5. Copy the Python service Railway domain.

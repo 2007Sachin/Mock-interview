@@ -28,10 +28,10 @@ Steps performed in Railway dashboard:
 
 1. Click "New Service" → "GitHub Repo" → select `MahammadWahab540/pathwisse-mockinterview`.
 2. Set root directory to `services/voice-agent`.
-3. Railway/Nixpacks detects `pyproject.toml` and installs with `uv`.
-4. If start command is not picked up from `railway.json`, set manually:
+3. Railway/Nixpacks detects `pyproject.toml` and installs dependencies.
+4. The `railway.json` sets the start command to `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT`. If not picked up automatically, set it manually in the Railway UI:
    ```
-   uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT
+   python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
    ```
 5. Rename service to `pathwisse-voice-agent`.
 6. Set environment variables (see Task E in spec).
@@ -97,12 +97,15 @@ node --import tsx --test test/report-generation.test.ts
 cd services/voice-agent
 python -m compileall app
 
-# If uv is available:
-uv run python -c "import app.main; print('voice-agent import ok')"
+python -c "import app.main; print('voice-agent import ok')"
 
-# If uvicorn is practical:
-uv run uvicorn app.main:app --host 127.0.0.1 --port 7860 &
+# Local smoke test:
+python -m uvicorn app.main:app --host 127.0.0.1 --port 7860 &
 curl http://127.0.0.1:7860/health
+
+# With uv (local dev only):
+# uv run python -c "import app.main; print('voice-agent import ok')"
+# uv run uvicorn app.main:app --host 127.0.0.1 --port 7860
 ```
 
 ## Files changed in this PR

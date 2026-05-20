@@ -59,18 +59,18 @@ Daily credentials are not needed for local websocket mode.
 
 ## Install and Run
 
-Preferred `uv` flow:
-
-```powershell
-uv sync
-uv run uvicorn app.main:app --host 0.0.0.0 --port 7860
-```
-
-Fallback if you use `requirements.txt` directly:
+Standard (Railway and local):
 
 ```powershell
 pip install -r requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 7860
+```
+
+With `uv` (local dev only):
+
+```powershell
+uv sync
+uv run uvicorn app.main:app --host 0.0.0.0 --port 7860
 ```
 
 ## Local Websocket Mode
@@ -137,16 +137,16 @@ Deploy as a second Railway service from the same GitHub repo.
 | Branch | `main` |
 | Root directory | `services/voice-agent` |
 | Builder | Nixpacks (auto-detects Python via `pyproject.toml`) |
-| Start command | `uv run uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
+| Start command | `python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT` |
 | Health check path | `/health` |
 
-The `railway.json` file in this directory sets the start command and health check path automatically. If Railway does not pick it up, set the start command manually in the Railway UI.
-
-Fallback start command (if `uv` is unavailable in the build):
+The `railway.json` file in this directory sets the start command and health check path automatically. If Railway does not pick it up, set the start command manually in the Railway UI:
 
 ```
-pip install -r requirements.txt && uvicorn app.main:app --host 0.0.0.0 --port $PORT
+python -m uvicorn app.main:app --host 0.0.0.0 --port $PORT
 ```
+
+For local development with `uv` installed, use `uv run uvicorn ...` instead.
 
 ### Railway environment variables
 
