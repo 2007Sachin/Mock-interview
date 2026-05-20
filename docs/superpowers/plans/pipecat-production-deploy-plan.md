@@ -22,9 +22,18 @@ Node service and Python voice-agent run as separate Railway services sharing Pos
 2. Set Railway root directory to `services/voice-agent/`.
 3. Railway will detect Python via `pyproject.toml` or `requirements.txt`.
 4. Set environment variables on the voice-agent service (see spec).
-5. Set `NODE_SERVICE_URL` to the Node service's Railway public URL.
+5. Set `NODE_API_BASE_URL` to the Node service's Railway public URL.
 6. Set `PIPECAT_CONNECT_SECRET` to a strong random secret (same value as Node service).
-7. Verify `/health` returns `{ ok: true, pipecatReady: true }`.
+7. Verify `/health` returns:
+   ```json
+   {
+     "success": true,
+     "data": {
+       "service": "lumina-voice-agent-service",
+       "status": "ok"
+     }
+   }
+   ```
 
 ---
 

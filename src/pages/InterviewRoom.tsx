@@ -32,7 +32,7 @@ export function InterviewRoom() {
   );
 
   useEffect(() => {
-    if (!sessionId || !sessionToken || !currentStage) return;
+    if (!onboardingComplete || !sessionId || !sessionToken || !currentStage) return;
 
     const requestId = latestQuestionRequestRef.current + 1;
     latestQuestionRequestRef.current = requestId;
@@ -57,7 +57,7 @@ export function InterviewRoom() {
     return () => {
       cancelled = true;
     };
-  }, [sessionId, sessionToken, currentStage, stageAnswers]);
+  }, [onboardingComplete, sessionId, sessionToken, currentStage, stageAnswers]);
 
   const handleSubmitAnswer = async (transcript: string) => {
     if (!sessionToken || isSubmittingAnswer) return;

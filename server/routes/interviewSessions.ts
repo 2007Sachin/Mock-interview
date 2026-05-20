@@ -105,7 +105,7 @@ export function createInterviewSessionRouter(service: SessionService) {
         voiceProvider,
         transport,
         requiresMic: true,
-        requiresCamera: true,
+        requiresCamera: false,
         ttsProvider,
         sttProvider,
         serverTime: new Date().toISOString(),

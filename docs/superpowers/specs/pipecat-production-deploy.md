@@ -69,7 +69,7 @@ Requires:
 | Variable | Description |
 |---|---|
 | `PORT` | Railway-assigned public port |
-| `NODE_SERVICE_URL` | URL of Node service (for turn/transcript writes) |
+| `NODE_API_BASE_URL` | URL of Node service (for turn/transcript writes) |
 | `PIPECAT_CONNECT_SECRET` | Shared secret with Node service |
 | `PIPECAT_ROOM_PROVIDER` | `websocket` or `daily` |
 | `PIPECAT_DAILY_API_KEY` | Daily API key (if using Daily transport) |
@@ -91,7 +91,7 @@ Requires:
 ## Health Checks
 
 - `GET /health` on Node service returns `{ ok: true, storageMode: "postgres" }`
-- `GET /health` on Python service returns `{ ok: true, pipecatReady: true }`
+- `GET /health` on Python service returns `{ "success": true, "data": { "service": "lumina-voice-agent-service", "status": "ok" } }`
 
 ## Smoke Tests After Deploy
 
