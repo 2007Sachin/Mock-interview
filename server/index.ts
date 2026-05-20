@@ -10,7 +10,7 @@ import { ScoringService } from './services/scoringService.js';
 import { SessionService } from './services/sessionService.js';
 import { TokenService } from './services/tokenService.js';
 
-const port = Number(process.env.MOCK_INTERVIEW_SERVICE_PORT ?? 4174);
+const port = Number(process.env.PORT ?? process.env.MOCK_INTERVIEW_SERVICE_PORT ?? 4174);
 const publicUrl = process.env.MOCK_INTERVIEW_PUBLIC_URL ?? 'http://localhost:5174';
 const callbackSecret = process.env.MOCK_INTERVIEW_CALLBACK_SECRET ?? 'dev-callback-secret';
 const storePath = process.env.MOCK_INTERVIEW_STORE_PATH ?? '.data/mock-interview-store.json';
