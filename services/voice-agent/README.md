@@ -1,97 +1,160 @@
-# Voice Agent Transport Runtime
+# Pathwisse Voice Agent
 
-This service runs the local Pathwisse voice interview runtime in place under `services/voice-agent/`.
+This directory contains the Python Pipecat service used by the Pathwisse mock interview stack.
 
-## Transport modes
+## Ownership
 
-- Local/dev default: `VOICE_TRANSPORT=websocket`
-- Production path: `VOICE_TRANSPORT=daily`
-- Node issues the voice token and owns the browser connect payload
-- Python validates the token, fetches private voice context from Node, orchestrates the interview, and persists transcript events and finalized turns back to Node
-- Browser Kokoro is the TTS UX; Python emits `assistant_text` events and does not use server-side TTS as the primary experience
-- Daily keeps the same browser event contract and persistence intent, but the browser must never receive the Daily API key or the Pipecat secret
+- This service handles realtime interview orchestration.
+- It validates the short-lived voice token issued by Node.
+- It fetches private voice context from the Node API.
+- It is the single writer for Pipecat realtime transcript events and finalized turns.
+- It does not own authoritative final report generation.
+- It does not send LMS callbacks.
+
+Node remains the authority for:
+
+- session validation
+- safe browser connect payloads
+- final report generation
+- report persistence
+- LMS callback delivery
+
+## Architecture Notes
+
+- Transport source of truth: `VOICE_TRANSPORT=websocket|daily`
+- Kokoro is browser-only. Python emits `assistant_text` events; it does not do primary server-side TTS playback.
+- Mistral stays server-side and is used here only for live interview orchestration, not for the authoritative final report.
+- Private resume and JD context stay inside Node and this service only.
 
 ## Environment
 
-Copy `.env.example` to `.env` and set the Mistral key if you want live orchestration:
+Copy `.env.example` to `.env`.
 
 ```powershell
 Copy-Item .env.example .env
 ```
 
-Required settings:
+Required local websocket settings:
 
 - `NODE_API_BASE_URL=http://localhost:4174`
 - `PIPECAT_CONNECT_SECRET=dev-pipecat-secret`
 - `VOICE_TRANSPORT=websocket`
-- `PIPECAT_ROOM_PROVIDER=daily`
 - `STT_PROVIDER=whisper` or `openai_realtime`
+- `WHISPER_MODEL=base`
 - `LLM_PROVIDER=mistral`
 - `MISTRAL_API_KEY=...`
+- `MISTRAL_LLM_MODEL=mistral-small-latest`
+- `MISTRAL_TEMPERATURE=0.4`
+- `MISTRAL_MAX_TOKENS=700`
 - `TTS_PROVIDER=kokoro_browser`
 - `PORT=7860`
 
-Additional Daily-only settings when `VOICE_TRANSPORT=daily`:
+Additional Daily-only settings:
 
+- `PIPECAT_ROOM_PROVIDER=daily`
 - `PIPECAT_DAILY_API_KEY=...`
 - `PIPECAT_DAILY_DOMAIN=your-domain.daily.co`
 
 Daily credentials are not needed for local websocket mode.
 
-## Install and run
+## Install and Run
 
-With `uv`:
+Preferred `uv` flow:
 
 ```powershell
 uv sync
 uv run uvicorn app.main:app --host 0.0.0.0 --port 7860
 ```
 
-Fallback if you are using `requirements.txt` directly:
+Fallback if you use `requirements.txt` directly:
 
 ```powershell
 pip install -r requirements.txt
 python -m uvicorn app.main:app --host 0.0.0.0 --port 7860
 ```
 
-## Websocket flow
+## Local Websocket Mode
 
-1. Node returns a websocket `pipecatConnectUrl` and `voiceToken`.
-2. The browser connects to `/v1/realtime/:sessionId?token=...`.
-3. Python validates the signed token with `PIPECAT_CONNECT_SECRET`.
-4. Python fetches `GET /api/internal/interview-sessions/:sessionId/voice-context` with `x-pipecat-secret`.
-5. Python emits safe frontend events only:
-   - `user_interim_transcript`
-   - `user_final_transcript`
-   - `assistant_text`
-   - `bot_thinking`
-   - `error`
-   - `interview_complete`
+This is the default local/dev transport.
 
-## Browser transcript fallback
+Flow:
 
-Phase 6 keeps an STT abstraction but supports a documented browser transcript fallback for local websocket mode. The browser can send websocket JSON messages like:
+1. The React app asks Node for a voice connect payload.
+2. Node returns a websocket `pipecatConnectUrl` and short-lived `voiceToken`.
+3. The browser connects to `/v1/realtime/:sessionId?token=...`.
+4. This service validates the token using `PIPECAT_CONNECT_SECRET`.
+5. This service loads private voice context from `GET /api/internal/interview-sessions/:sessionId/voice-context`.
+6. This service emits safe frontend events and persists them back to Node.
 
-```json
-{ "type": "user_interim_transcript", "text": "I worked on..." }
-{ "type": "user_final_transcript", "text": "I led a migration...", "eventId": "client-evt-1" }
-```
+Frontend events emitted:
 
-Audio streaming transport tightening and Daily production media handling are Phase 7 work.
+- `user_interim_transcript`
+- `user_final_transcript`
+- `assistant_text`
+- `bot_thinking`
+- `error`
+- `interview_complete`
 
-## Daily flow
+Current local limitation:
 
-1. Node remains the source of truth for `VOICE_TRANSPORT`.
-2. When `VOICE_TRANSPORT=daily`, Node validates `PIPECAT_DAILY_API_KEY`, `PIPECAT_DAILY_DOMAIN`, `PIPECAT_ROOM_PROVIDER=daily`, and `PIPECAT_SERVICE_URL`.
-3. Node returns only safe Daily client metadata to the browser.
-4. If Daily room provisioning is unavailable, Node returns a sanitized setup error instead of a fake connect payload.
-5. The Python runtime exposes a Daily seam alongside the existing websocket runtime so deployments can select transport without changing the browser event contract or moving Kokoro server-side.
+- The local websocket path may use the browser-facing transcript fallback seam if full Pipecat STT is not available locally. The STT abstraction is preserved for tighter production transport later.
+
+## Daily Production Mode
+
+This service also exposes a Daily transport seam behind `VOICE_TRANSPORT=daily`.
+
+Behavior:
+
+- Node remains the source of truth for transport selection.
+- Missing Daily env produces sanitized setup errors.
+- The browser receives only safe Daily client metadata.
+- The browser never receives the Daily API key or the Pipecat secret.
+- Kokoro remains browser-only in Daily mode as well.
 
 ## Persistence
 
-Python is the single writer for:
+This service writes to Node using:
 
 - `POST /api/interview-sessions/:sessionId/transcript-events`
 - `POST /api/interview-sessions/:sessionId/turns`
 
-The runtime uses stable UUIDs derived from `eventId` and `turnId` seeds so retries stay duplicate-safe.
+Persistence rules:
+
+- Transcript events are idempotent by `eventId`.
+- Finalized turns are idempotent by `turnId`.
+- React only persists manual fallback submissions, not Pipecat realtime events.
+
+## Verification
+
+Useful checks:
+
+```powershell
+python -m compileall services/voice-agent/app
+uv run python -c "import app.main; print('voice-agent import ok')"
+```
+
+## Troubleshooting
+
+`Voice token rejected`
+
+- Confirm `PIPECAT_CONNECT_SECRET` matches the root `.env`.
+- Confirm `VOICE_TRANSPORT` matches the token transport.
+- Confirm the token has not expired.
+
+`Transcript events are not persisting`
+
+- Confirm `NODE_API_BASE_URL` points to the running Node API.
+- Confirm the internal secret matches Node.
+- Check that the runtime is supplying stable `eventId` and `turnId` values.
+
+`Websocket connection refused`
+
+- Confirm the service is running on `PORT=7860`.
+- Confirm Node is returning `PIPECAT_SERVICE_URL=http://localhost:7860`.
+- Confirm `VOICE_TRANSPORT=websocket`.
+
+`Daily setup error`
+
+- Confirm `PIPECAT_ROOM_PROVIDER=daily`.
+- Confirm `PIPECAT_DAILY_API_KEY` and `PIPECAT_DAILY_DOMAIN` are set.
+- Daily credentials are not required in websocket mode.
