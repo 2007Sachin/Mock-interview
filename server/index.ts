@@ -1,3 +1,5 @@
+import { existsSync } from 'fs';
+import { join, resolve } from 'path';
 import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
@@ -49,6 +51,25 @@ app.get('/health', (_req, res) => {
 });
 
 app.use(createInterviewSessionRouter(sessionService));
+
+
+const clientDistPath = resolve(process.cwd(), 'dist');
+const indexHtmlPath = join(clientDistPath, 'index.html');
+
+if (existsSync(indexHtmlPath)) {
+  app.use(express.static(clientDistPath));
+
+  app.get('*', (req, res, next) => {
+    if (req.path.startsWith('/api')) {
+      return next();
+    }
+    res.sendFile(indexHtmlPath);
+  });
+} else {
+  console.warn(
+    '[pathwisse-mockinterview] React build output not found. Frontend routes will not be served.',
+  );
+}
 
 app.listen(port, '0.0.0.0', () => {
   console.log(`pathwisse-mockinterview server listening on ${port}`);
