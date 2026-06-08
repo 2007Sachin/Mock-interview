@@ -388,7 +388,7 @@ export class SessionService {
         fallbackUsed: true,
         fallbackReason: reason,
       });
-      return this.scoringService.score(session, heuristicAnswers);
+      return this.scoringService.score(session, heuristicAnswers, interviewMode, brief);
     }
   }
 
