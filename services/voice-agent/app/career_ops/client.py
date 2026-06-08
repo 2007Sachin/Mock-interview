@@ -53,11 +53,26 @@ class SavedAnswer(BaseModel):
     createdAt: str
 
 
+class RubricCriterion(BaseModel):
+    id: str
+    name: str
+
+
+class InterviewBriefContext(BaseModel):
+    title: str = ""
+    summary: str = ""
+    focusAreas: list[str] = Field(default_factory=list)
+    questionBank: list[str] = Field(default_factory=list)
+    rubric: list[RubricCriterion] = Field(default_factory=list)
+
+
 class InternalVoiceContext(BaseModel):
     sessionId: str
     status: str
     transport: str
     requestId: str
+    interviewMode: str = "resume"
+    brief: InterviewBriefContext = Field(default_factory=InterviewBriefContext)
     candidate: CandidateProfile
     opportunity: OpportunityProfile
     resume: ResumeProfile

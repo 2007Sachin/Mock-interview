@@ -4,8 +4,11 @@ import 'dotenv/config';
 import cors from 'cors';
 import express from 'express';
 import { createSessionStore } from './db/store.js';
+import { createInterviewBriefRouter } from './routes/interviewBriefs.js';
 import { createInterviewSessionRouter } from './routes/interviewSessions.js';
 import { CallbackService } from './services/callbackService.js';
+import { InterviewBriefService } from './services/interviewBriefService.js';
+import { MistralBriefService } from './services/mistralBriefService.js';
 import { MistralInterviewService } from './services/mistralInterviewService.js';
 import { QuestionService } from './services/questionService.js';
 import { ScoringService } from './services/scoringService.js';
@@ -40,6 +43,8 @@ const sessionService = new SessionService(
   publicUrl,
   mistralInterviewService,
 );
+const mistralBriefService = new MistralBriefService();
+const interviewBriefService = new InterviewBriefService(store, tokenService, mistralBriefService);
 
 app.get('/health', (_req, res) => {
   res.json({
@@ -51,6 +56,7 @@ app.get('/health', (_req, res) => {
 });
 
 app.use(createInterviewSessionRouter(sessionService));
+app.use(createInterviewBriefRouter(interviewBriefService));
 
 
 const clientDistPath = resolve(process.cwd(), 'dist');

@@ -65,39 +65,12 @@ class MistralInterviewOrchestrator:
         return AssistantTurn.model_validate(parsed)
 
     def _generate_fallback(self, request: OrchestratorInput) -> AssistantTurn:
-        role = request.context.opportunity.title
-        company = request.context.opportunity.company
-        stage_label = request.stage.replace("_", " ").replace("-", " ").strip().title() or "Interview"
-        if request.is_final_stage:
-            return AssistantTurn(
-                stage=request.stage,
-                assistantText=f"Thanks. That covers the interview for the {role} role at {company}.",
-                question="",
-                shouldWaitForUser=False,
-                isInterviewComplete=True,
-            )
-
-        stage_hint = {
-            "intro": f"What makes you a strong fit for this {role} role at {company}?",
-            "behavioral": "Tell me about a specific time you handled a difficult challenge or conflict.",
-            "technical": "Walk me through how you would solve a representative problem for this role.",
-            "closing": "What questions do you have about the role or team?",
-        }.get(request.stage.lower())
-
-        if not stage_hint:
-            missing_skills = request.context.opportunity.missingSkills
-            if missing_skills:
-                stage_hint = f"Can you describe a time you applied {missing_skills[0]} in real work?"
-            else:
-                stage_hint = f"What experience best prepares you for this {role} role?"
-
-        return AssistantTurn(
-            stage=request.stage,
-            assistantText=stage_hint,
-            question=stage_hint,
-            shouldWaitForUser=True,
-            isInterviewComplete=False,
-        )
+        mode = request.context.interviewMode
+        if mode == "capstone":
+            return _fallback_capstone(request)
+        if mode == "skill":
+            return _fallback_skill(request)
+        return _fallback_resume(request)
 
 
 def _extract_content(payload: dict) -> str:
@@ -136,3 +109,117 @@ def _parse_json_object(content: str) -> dict:
         raise ValueError("Mistral response did not contain a JSON object.")
 
     return json.loads(normalized[start : end + 1])
+
+
+# ---------------------------------------------------------------------------
+# Mode-specific fallback generators (used when Mistral is unavailable)
+# ---------------------------------------------------------------------------
+
+def _fallback_resume(request: OrchestratorInput) -> AssistantTurn:
+    role = request.context.opportunity.title
+    company = request.context.opportunity.company
+    subject = f"{role} role at {company}"
+
+    if request.is_final_stage:
+        return AssistantTurn(
+            stage=request.stage,
+            assistantText=f"Thanks for your time. That wraps up the interview for the {subject}.",
+            question="",
+            shouldWaitForUser=False,
+            isInterviewComplete=True,
+        )
+
+    hint = {
+        "intro": f"What makes you a strong fit for this {subject}?",
+        "behavioral": "Tell me about a specific time you handled a difficult challenge or conflict.",
+        "technical": "Walk me through how you would solve a representative problem for this role.",
+        "closing": "What questions do you have about the role or team?",
+    }.get(request.stage.lower())
+
+    if not hint:
+        missing = request.context.opportunity.missingSkills
+        hint = (
+            f"Can you describe a time you applied {missing[0]} in real work?"
+            if missing
+            else f"What experience best prepares you for this {subject}?"
+        )
+
+    return AssistantTurn(
+        stage=request.stage,
+        assistantText=hint,
+        question=hint,
+        shouldWaitForUser=True,
+        isInterviewComplete=False,
+    )
+
+
+def _fallback_capstone(request: OrchestratorInput) -> AssistantTurn:
+    title = request.context.brief.title or "your project"
+
+    if request.is_final_stage:
+        return AssistantTurn(
+            stage=request.stage,
+            assistantText=f"Thanks for walking me through {title}. That concludes our review.",
+            question="",
+            shouldWaitForUser=False,
+            isInterviewComplete=True,
+        )
+
+    hint = {
+        "project_overview": f"Can you walk me through what {title} does and the problem it was designed to solve?",
+        "technical_deepdive": "Which part of your implementation was most technically challenging, and how did you approach it?",
+        "design_decisions": "What was the hardest design decision you made, and what alternatives did you consider?",
+        "reflection": "If you could redo one aspect of this project, what would you change and why?",
+    }.get(request.stage.lower())
+
+    if not hint:
+        areas = request.context.brief.focusAreas
+        hint = (
+            f"Can you tell me more about {areas[0]} in your project?"
+            if areas
+            else f"Can you describe a key technical decision you made in {title}?"
+        )
+
+    return AssistantTurn(
+        stage=request.stage,
+        assistantText=hint,
+        question=hint,
+        shouldWaitForUser=True,
+        isInterviewComplete=False,
+    )
+
+
+def _fallback_skill(request: OrchestratorInput) -> AssistantTurn:
+    title = request.context.brief.title or "this skill"
+
+    if request.is_final_stage:
+        return AssistantTurn(
+            stage=request.stage,
+            assistantText=f"Thanks for the discussion on {title}. That wraps up our assessment.",
+            question="",
+            shouldWaitForUser=False,
+            isInterviewComplete=True,
+        )
+
+    hint = {
+        "fundamentals": f"Can you explain a core concept you consider essential to understanding {title}?",
+        "applied": f"Describe a real scenario where you used {title} to solve a practical problem.",
+        "edge_cases": f"What are some edge cases or failure modes you have encountered when working with {title}?",
+        "depth": f"What is a subtle or advanced aspect of {title} that many developers overlook?",
+    }.get(request.stage.lower())
+
+    if not hint:
+        areas = request.context.brief.focusAreas
+        hint = (
+            f"How would you approach {areas[0]} in the context of {title}?"
+            if areas
+            else f"What do you consider the most important thing to understand about {title}?"
+        )
+
+    return AssistantTurn(
+        stage=request.stage,
+        assistantText=hint,
+        question=hint,
+        shouldWaitForUser=True,
+        isInterviewComplete=False,
+    )

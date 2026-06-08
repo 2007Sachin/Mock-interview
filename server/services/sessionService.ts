@@ -4,6 +4,8 @@ import {
   InterviewAnswerRecord,
   DailyInterviewVoiceConnectPayload,
   DailyTransportConnectParams,
+  InterviewBrief,
+  InterviewMode,
   InterviewPayload,
   InterviewReportDraft,
   InterviewReportRecord,
@@ -204,15 +206,31 @@ export class SessionService {
     const session = await this.requireSession(sessionId);
     const answers = await this.store.listAnswers(sessionId);
 
+    const briefRecord = await this.store.findInterviewBrief(sessionId).catch(() => null);
+    const interviewMode: InterviewMode = briefRecord?.mode ?? 'resume';
+    const brief: InterviewBrief = briefRecord
+      ? {
+          title: briefRecord.title,
+          summary: briefRecord.summary,
+          focusAreas: briefRecord.focusAreas,
+          questionBank: briefRecord.questionBank,
+          rubric: briefRecord.rubric,
+        }
+      : deriveBriefFromPayload(session.payload);
+
+    const stages = resolveStagesForMode(interviewMode, session.payload.interviewConfig.stages);
+
     return {
       sessionId: session.id,
       status: session.status,
       transport: this.resolveVoiceTransport(),
       requestId: session.payload.requestId,
+      interviewMode,
+      brief,
       candidate: session.payload.user,
       opportunity: session.payload.opportunity,
       resume: session.payload.resume,
-      interviewConfig: session.payload.interviewConfig,
+      interviewConfig: { ...session.payload.interviewConfig, stages },
       answers: answers.map((answer) => ({
         stage: answer.stage,
         question: answer.question,
@@ -271,10 +289,17 @@ export class SessionService {
 
   async complete(sessionId: string, sessionToken: string): Promise<InterviewReportRecord & { status: 'completed' }> {
     const session = await this.requireAuthorizedSession(sessionId, sessionToken);
-    const answers = await this.store.listAnswers(sessionId);
-    const turns = await this.store.listTurns(sessionId);
-    const transcriptEvents = await this.store.listTranscriptEvents(sessionId);
-    const scored = await this.generateInterviewReport(session, answers, turns, transcriptEvents);
+    const [answers, turns, transcriptEvents, briefRecord] = await Promise.all([
+      this.store.listAnswers(sessionId),
+      this.store.listTurns(sessionId),
+      this.store.listTranscriptEvents(sessionId),
+      this.store.findInterviewBrief(sessionId).catch(() => null),
+    ]);
+    const interviewMode: InterviewMode = briefRecord?.mode ?? 'resume';
+    const brief: InterviewBrief = briefRecord
+      ? { title: briefRecord.title, summary: briefRecord.summary, focusAreas: briefRecord.focusAreas, questionBank: briefRecord.questionBank, rubric: briefRecord.rubric }
+      : deriveBriefFromPayload(session.payload);
+    const scored = await this.generateInterviewReport(session, answers, turns, transcriptEvents, interviewMode, brief);
     const report = await this.store.upsertReport({
       sessionId,
       ...scored,
@@ -330,10 +355,12 @@ export class SessionService {
     answers: InterviewAnswerRecord[],
     turns: InterviewTurnRecord[],
     transcriptEvents: InterviewTranscriptEventRecord[],
+    interviewMode: InterviewMode,
+    brief: InterviewBrief,
   ): Promise<InterviewReportDraft> {
     const heuristicAnswers = selectHeuristicAnswers(answers, turns);
     if (!this.shouldUseMistralReporting() || !this.reportGenerator) {
-      return this.scoringService.score(session, heuristicAnswers);
+      return this.scoringService.score(session, heuristicAnswers, interviewMode, brief);
     }
 
     try {
@@ -342,6 +369,8 @@ export class SessionService {
         answers: selectReportAnswers(answers, turns),
         turns,
         transcriptEvents,
+        interviewMode,
+        brief,
       });
       console.info('[pathwisse-mockinterview] Interview report generated.', {
         sessionId: session.id,
@@ -772,4 +801,36 @@ function normalizeComparableText(value: string): string {
     .trim()
     .toLowerCase()
     .replace(/\s+/g, ' ');
+}
+
+function deriveBriefFromPayload(payload: InterviewPayload): InterviewBrief {
+  const desc = payload.opportunity.description.replace(/\s+/g, ' ').trim();
+  const summary = desc.length > 300 ? `${desc.slice(0, 299).trimEnd()}...` : desc;
+  const focusAreas = [
+    ...payload.opportunity.matchedSkills.slice(0, 3),
+    ...payload.opportunity.missingSkills.slice(0, 2),
+  ].filter(Boolean);
+  return {
+    title: `${payload.opportunity.title} at ${payload.opportunity.company}`,
+    summary: summary || 'Interview preparation based on submitted resume and job description.',
+    focusAreas: focusAreas.length > 0 ? focusAreas : ['Technical skills', 'Communication'],
+    questionBank: [],
+    rubric: [
+      { id: 'technical_skills', name: 'Technical Skills' },
+      { id: 'communication', name: 'Communication' },
+      { id: 'role_alignment', name: 'Role Alignment' },
+      { id: 'behavioural_competencies', name: 'Behavioural Competencies' },
+    ],
+  };
+}
+
+function resolveStagesForMode(mode: InterviewMode, existingStages: string[]): string[] {
+  switch (mode) {
+    case 'capstone':
+      return ['project_overview', 'technical_deepdive', 'design_decisions', 'reflection'];
+    case 'skill':
+      return ['fundamentals', 'applied', 'edge_cases', 'depth'];
+    default:
+      return existingStages;
+  }
 }

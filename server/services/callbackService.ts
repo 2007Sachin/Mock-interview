@@ -4,6 +4,7 @@ export class CallbackService {
   constructor(private readonly secret: string) {}
 
   async send(callbackUrl: string, payload: Record<string, unknown>): Promise<void> {
+    if (!callbackUrl) return;
     const body = JSON.stringify(payload);
     const signature = createHmac('sha256', this.secret).update(body).digest('hex');
 

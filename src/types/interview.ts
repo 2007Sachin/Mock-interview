@@ -1,3 +1,33 @@
+export type InterviewMode = 'resume' | 'capstone' | 'skill';
+export type SkillLevel = 'beginner' | 'intermediate' | 'advanced';
+
+export type BriefCreateResponse = {
+  sessionId: string;
+  accessCode: string;
+  expiresAt: string;
+};
+
+export type ResumeBriefInput = {
+  mode: 'resume';
+  resumeText: string;
+  jobTitle: string;
+  company?: string;
+  jobDescription: string;
+};
+
+export type CapstoneBriefInput = {
+  mode: 'capstone';
+  pdf: File;
+};
+
+export type SkillBriefInput = {
+  mode: 'skill';
+  skillName: string;
+  level?: SkillLevel;
+};
+
+export type BriefCreateInput = ResumeBriefInput | CapstoneBriefInput | SkillBriefInput;
+
 export type InterviewSessionStatus =
   | 'created'
   | 'opened'

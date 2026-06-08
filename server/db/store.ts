@@ -4,6 +4,7 @@ import { Client } from 'pg';
 import { randomUUID } from 'crypto';
 import {
   InterviewAnswerRecord,
+  InterviewBriefRecord,
   InterviewReportRecord,
   InterviewSessionRecord,
   InterviewTranscriptEventRecord,
@@ -16,6 +17,7 @@ type DatabaseShape = {
   reports: InterviewReportRecord[];
   transcriptEvents: InterviewTranscriptEventRecord[];
   turns: InterviewTurnRecord[];
+  interviewBriefs: InterviewBriefRecord[];
 };
 
 const defaultDb: DatabaseShape = {
@@ -24,6 +26,7 @@ const defaultDb: DatabaseShape = {
   reports: [],
   transcriptEvents: [],
   turns: [],
+  interviewBriefs: [],
 };
 
 export interface SessionStore {
@@ -45,6 +48,8 @@ export interface SessionStore {
   ): Promise<InterviewTurnRecord>;
   listTranscriptEvents(sessionId: string): Promise<InterviewTranscriptEventRecord[]>;
   listTurns(sessionId: string): Promise<InterviewTurnRecord[]>;
+  insertInterviewBrief(brief: InterviewBriefRecord): Promise<void>;
+  findInterviewBrief(id: string): Promise<InterviewBriefRecord | null>;
 }
 
 export function createSessionStore(args: {
@@ -188,6 +193,17 @@ class FileStore implements SessionStore {
     return db.turns
       .filter((item) => item.sessionId === sessionId)
       .sort(compareCreatedAtAsc);
+  }
+
+  async insertInterviewBrief(brief: InterviewBriefRecord): Promise<void> {
+    const db = await this.load();
+    db.interviewBriefs.push(brief);
+    await this.save(db);
+  }
+
+  async findInterviewBrief(id: string): Promise<InterviewBriefRecord | null> {
+    const db = await this.load();
+    return db.interviewBriefs.find((item) => item.id === id) ?? null;
   }
 }
 
@@ -485,6 +501,14 @@ class PostgresStore implements SessionStore {
     );
 
     return result.rows.map(mapTurnRow);
+  }
+
+  async insertInterviewBrief(_brief: InterviewBriefRecord): Promise<void> {
+    throw new Error('Interview briefs require the file-backed store. PostgresStore support is not yet implemented.');
+  }
+
+  async findInterviewBrief(_id: string): Promise<InterviewBriefRecord | null> {
+    throw new Error('Interview briefs require the file-backed store. PostgresStore support is not yet implemented.');
   }
 
   private async connect(): Promise<void> {

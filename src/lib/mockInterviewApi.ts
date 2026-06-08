@@ -1,4 +1,6 @@
 import {
+  BriefCreateInput,
+  BriefCreateResponse,
   InterviewReport,
   InterviewSessionContext,
   InterviewVoiceConnectPayload,
@@ -6,6 +8,7 @@ import {
   NextQuestionResponse,
   SessionVerifyResponse,
 } from '@/types/interview';
+import { env } from '@/lib/env';
 
 function getApiBaseUrl() {
   const configuredBaseUrl = (import.meta.env.VITE_MOCK_INTERVIEW_API_URL as string | undefined)?.trim();
@@ -144,6 +147,42 @@ export function submitManualInterviewTurn(sessionId: string, sessionToken: strin
   return request<{ ok: true }>(`/api/interview-sessions/${sessionId}/voice/manual-turn`, {
     method: 'POST',
     headers: getHeaders(sessionToken),
+    body: JSON.stringify(input),
+  });
+}
+
+export async function createInterviewBrief(input: BriefCreateInput): Promise<BriefCreateResponse> {
+  const secret = env.serviceSecret;
+
+  if (input.mode === 'capstone') {
+    const formData = new FormData();
+    formData.append('mode', 'capstone');
+    formData.append('pdf', input.pdf);
+
+    const response = await fetch(`${apiBaseUrl}/api/interview-briefs`, {
+      method: 'POST',
+      headers: { 'x-service-secret': secret },
+      body: formData,
+    });
+
+    const rawBody = await response.text();
+    let payload: unknown = null;
+    try { payload = JSON.parse(rawBody); } catch { /* empty */ }
+
+    if (!response.ok) {
+      const message =
+        typeof payload === 'object' && payload !== null && 'message' in payload && typeof (payload as Record<string, unknown>).message === 'string'
+          ? (payload as Record<string, unknown>).message as string
+          : 'Failed to create capstone session.';
+      throw new ApiRequestError(message, response.status, '/api/interview-briefs');
+    }
+
+    return payload as BriefCreateResponse;
+  }
+
+  return request<BriefCreateResponse>('/api/interview-briefs', {
+    method: 'POST',
+    headers: { 'content-type': 'application/json', 'x-service-secret': secret },
     body: JSON.stringify(input),
   });
 }

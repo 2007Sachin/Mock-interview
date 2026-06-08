@@ -179,6 +179,8 @@ export interface InternalInterviewVoiceContext {
   status: InterviewSessionStatus;
   transport: VoiceTransport;
   requestId: string;
+  interviewMode: InterviewMode;
+  brief: InterviewBrief;
   candidate: InterviewPayload['user'];
   opportunity: InterviewPayload['opportunity'];
   resume: InterviewPayload['resume'];
@@ -219,4 +221,22 @@ export interface PlaceholderRouteResult {
     code: string;
     message: string;
   };
+}
+
+export type InterviewMode = 'resume' | 'capstone' | 'skill';
+
+export interface InterviewBrief {
+  title: string;
+  summary: string;
+  focusAreas: string[];
+  questionBank: string[];
+  rubric: Array<{ id: string; name: string }>;
+}
+
+export interface InterviewBriefRecord extends InterviewBrief {
+  id: string;
+  mode: InterviewMode;
+  accessCodeHash: string;
+  createdAt: string;
+  expiresAt: string;
 }

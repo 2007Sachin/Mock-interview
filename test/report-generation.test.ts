@@ -349,6 +349,8 @@ function createStore(input: {
     }),
     listTranscriptEvents: async () => transcriptEvents,
     listTurns: async () => turns,
+    insertInterviewBrief: async () => undefined,
+    findInterviewBrief: async () => null,
   };
 }
 

@@ -1,5 +1,7 @@
 import {
   InterviewAnswerRecord,
+  InterviewBrief,
+  InterviewMode,
   InterviewReportDraft,
   InterviewSessionRecord,
   InterviewTranscriptEventRecord,
@@ -21,6 +23,8 @@ export interface InterviewReportGenerationInput {
   answers: InterviewAnswerRecord[];
   turns: InterviewTurnRecord[];
   transcriptEvents: InterviewTranscriptEventRecord[];
+  interviewMode?: InterviewMode;
+  brief?: InterviewBrief;
 }
 
 export interface InterviewReportGenerator {
@@ -136,25 +140,55 @@ export class MistralInterviewService implements InterviewReportGenerator {
 }
 
 function buildPromptMessages(input: InterviewReportGenerationInput): Array<{ role: 'system' | 'user'; content: string }> {
+  const mode = input.interviewMode ?? 'resume';
+  if (mode === 'capstone') return buildCapstonePromptMessages(input);
+  if (mode === 'skill') return buildSkillPromptMessages(input);
+  return buildResumePromptMessages(input);
+}
+
+const SHARED_INSTRUCTIONS = [
+  'Return JSON only.',
+  'Use only facts grounded in the supplied interview data.',
+  'Do not invent evidence and do not speculate.',
+  'All scores must be numeric from 0 to 100.',
+  'Summary must be concise and non-empty.',
+  'Strengths and improvements must be actionable string arrays.',
+  'stageScores must be an object whose keys are exactly the stageNames provided, with numeric 0-100 values.',
+  'Prefer interview turns over legacy answers when both describe the same response.',
+].join(' ');
+
+function sharedTranscriptContext(input: InterviewReportGenerationInput) {
+  return {
+    answers: input.answers.slice(0, ANSWER_LIMIT).map((a) => ({
+      stage: a.stage, question: a.question, answerTranscript: a.answerTranscript, createdAt: a.createdAt,
+    })),
+    turns: input.turns.slice(0, TURN_LIMIT).map((t) => ({
+      role: t.role, stage: t.stage, question: t.question, text: t.text, createdAt: t.createdAt,
+    })),
+    transcriptEvents: input.transcriptEvents
+      .filter((e) => e.text)
+      .slice(0, TRANSCRIPT_EVENT_LIMIT)
+      .map((e) => ({
+        role: e.role, type: e.type, stage: e.stage, question: e.question, text: e.text, createdAt: e.createdAt,
+      })),
+  };
+}
+
+function buildResumePromptMessages(input: InterviewReportGenerationInput): Array<{ role: 'system' | 'user'; content: string }> {
   return [
     {
       role: 'system',
       content: [
         'You are a strict but fair mock interview evaluator.',
-        'Return JSON only.',
-        'Use only facts grounded in the supplied interview data.',
-        'Do not invent evidence, do not speculate, and do not reveal or quote private resume or job-description text verbatim.',
-        'All scores must be numeric from 0 to 100.',
-        'Summary must be concise and non-empty.',
-        'Strengths and improvements must be actionable string arrays.',
-        'Stage scores must be an object with numeric 0-100 values.',
-        'Prefer interview turns over legacy answers when both describe the same response.',
+        SHARED_INSTRUCTIONS,
+        'Do not reveal or quote private resume or job-description text verbatim.',
       ].join(' '),
     },
     {
       role: 'user',
       content: JSON.stringify({
-        task: 'Generate an interview report JSON object with keys overallScore, communicationScore, technicalScore, behavioralScore, jdAlignmentScore, summary, strengths, improvements, stageScores.',
+        task: 'Generate an interview report JSON object with keys overallScore, communicationScore, technicalScore, behavioralScore, jdAlignmentScore, summary, strengths, improvements, stageScores. The summary must assess role fit and candidate readiness for the target position.',
+        stageNames: input.session.payload.interviewConfig.stages,
         roleTitle: input.session.payload.opportunity.title,
         company: input.session.payload.opportunity.company,
         matchedSkills: input.session.payload.opportunity.matchedSkills,
@@ -162,31 +196,68 @@ function buildPromptMessages(input: InterviewReportGenerationInput): Array<{ rol
         recommendedActions: input.session.payload.opportunity.recommendedActions,
         resumeContext: summarizeContext(input.session.payload.resume.text, RESUME_CONTEXT_LIMIT),
         jobDescriptionContext: summarizeContext(input.session.payload.opportunity.description, JD_CONTEXT_LIMIT),
-        interviewStages: input.session.payload.interviewConfig.stages,
-        answers: input.answers.slice(0, ANSWER_LIMIT).map((answer) => ({
-          stage: answer.stage,
-          question: answer.question,
-          answerTranscript: answer.answerTranscript,
-          createdAt: answer.createdAt,
-        })),
-        turns: input.turns.slice(0, TURN_LIMIT).map((turn) => ({
-          role: turn.role,
-          stage: turn.stage,
-          question: turn.question,
-          text: turn.text,
-          createdAt: turn.createdAt,
-        })),
-        transcriptEvents: input.transcriptEvents
-          .filter((event) => event.text)
-          .slice(0, TRANSCRIPT_EVENT_LIMIT)
-          .map((event) => ({
-            role: event.role,
-            type: event.type,
-            stage: event.stage,
-            question: event.question,
-            text: event.text,
-            createdAt: event.createdAt,
-          })),
+        rubricCriteria: input.brief?.rubric ?? [],
+        ...sharedTranscriptContext(input),
+      }),
+    },
+  ];
+}
+
+function buildCapstonePromptMessages(input: InterviewReportGenerationInput): Array<{ role: 'system' | 'user'; content: string }> {
+  const brief = input.brief;
+  return [
+    {
+      role: 'system',
+      content: [
+        'You are a strict but fair capstone project interview evaluator.',
+        SHARED_INSTRUCTIONS,
+        'Do not reveal or quote the project brief text verbatim.',
+        'Map communicationScore to clarity of explanation.',
+        'Map technicalScore to quality of technical implementation decisions.',
+        'Map behavioralScore to reflective insight: what they would change and lessons learned.',
+        'Map jdAlignmentScore to breadth and depth of project coverage.',
+      ].join(' '),
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        task: 'Generate an interview report JSON object with keys overallScore, communicationScore, technicalScore, behavioralScore, jdAlignmentScore, summary, strengths, improvements, stageScores. The summary must assess the student\'s understanding of their project design, technical quality, and reflective insight.',
+        stageNames: ['project_overview', 'technical_deepdive', 'design_decisions', 'reflection'],
+        briefTitle: brief?.title ?? '',
+        briefSummary: brief?.summary ?? '',
+        focusAreas: brief?.focusAreas ?? [],
+        rubricCriteria: brief?.rubric ?? [],
+        ...sharedTranscriptContext(input),
+      }),
+    },
+  ];
+}
+
+function buildSkillPromptMessages(input: InterviewReportGenerationInput): Array<{ role: 'system' | 'user'; content: string }> {
+  const brief = input.brief;
+  return [
+    {
+      role: 'system',
+      content: [
+        'You are a strict but fair technical skill assessor.',
+        SHARED_INSTRUCTIONS,
+        'Do not reveal or quote the skill brief text verbatim.',
+        'Map communicationScore to clarity of explanation.',
+        'Map technicalScore to conceptual depth and accuracy.',
+        'Map behavioralScore to practical application and real-world problem-solving examples.',
+        'Map jdAlignmentScore to edge-case awareness and advanced understanding.',
+      ].join(' '),
+    },
+    {
+      role: 'user',
+      content: JSON.stringify({
+        task: 'Generate an interview report JSON object with keys overallScore, communicationScore, technicalScore, behavioralScore, jdAlignmentScore, summary, strengths, improvements, stageScores. The summary must assess the candidate\'s conceptual depth, practical application, and edge-case awareness for the assessed skill.',
+        stageNames: ['fundamentals', 'applied', 'edge_cases', 'depth'],
+        assessmentTitle: brief?.title ?? '',
+        assessmentSummary: brief?.summary ?? '',
+        focusAreas: brief?.focusAreas ?? [],
+        rubricCriteria: brief?.rubric ?? [],
+        ...sharedTranscriptContext(input),
       }),
     },
   ];

@@ -29,4 +29,5 @@ export const env = {
   kokoroDtype: rawEnv.VITE_KOKORO_DTYPE ?? 'q8',
   kokoroDevice: rawEnv.VITE_KOKORO_DEVICE ?? 'wasm',
   kokoroVoice: rawEnv.VITE_KOKORO_VOICE ?? 'af_heart',
+  serviceSecret: rawEnv.VITE_MOCK_INTERVIEW_SERVICE_SECRET ?? 'dev-secret',
 } as const;
