@@ -3,11 +3,22 @@ import { useNavigate, useParams } from 'react-router-dom';
 import { InterviewOnboarding } from '@/components/InterviewOnboarding';
 import { PipecatVoicePanel } from '@/components/PipecatVoicePanel';
 import { VoiceAgentPanel } from '@/components/VoiceAgentPanel';
+import { ErrorNotice, QuestionProgress } from '@/components/VoiceCallUI';
 import { env } from '@/lib/env';
 import { completeInterview, getNextQuestion, submitInterviewAnswer } from '@/lib/mockInterviewApi';
 import { formatSessionStorageKey } from '@/lib/signature';
 import { useInterviewSession } from '@/hooks/useInterviewSession';
 import { INTERVIEW_STAGES } from '@/lib/stageEngine';
+
+function RoomHeader({ roleTitle, company }: { roleTitle: string | undefined; company: string | undefined }) {
+  return (
+    <div className="space-y-1">
+      <p className="text-sm uppercase tracking-[0.4em] text-accent">Live Mock Interview</p>
+      <h1 className="text-2xl font-bold text-ink">{roleTitle ?? 'Loading…'}</h1>
+      {company && <p className="text-sm text-ink-secondary">{company}</p>}
+    </div>
+  );
+}
 
 export function InterviewRoom() {
   const { sessionId = '' } = useParams();
@@ -20,6 +31,7 @@ export function InterviewRoom() {
   const [stageAnswers, setStageAnswers] = useState<Record<string, string[]>>({});
   const [roomError, setRoomError] = useState('');
   const [isSubmittingAnswer, setIsSubmittingAnswer] = useState(false);
+  const [isEndingInterview, setIsEndingInterview] = useState(false);
   const latestQuestionRequestRef = useRef(0);
 
   const currentStage = useMemo(
@@ -27,14 +39,20 @@ export function InterviewRoom() {
     [context.data?.stages, currentStageIndex],
   );
 
+  // Question total comes from the brief's questionBank when one exists for the
+  // session; otherwise fall back to the stage-engine question counts.
   const totalQuestions = useMemo(() => {
+    if (context.data?.totalQuestions) {
+      return context.data.totalQuestions;
+    }
+
     const stages = context.data?.stages ?? [];
     const total = stages.reduce((sum, stageId) => {
-      const stage = INTERVIEW_STAGES.find((s) => s.id === stageId);
+      const stage = INTERVIEW_STAGES.find((item) => item.id === stageId);
       return sum + (stage?.questionCount ?? 0);
     }, 0);
     return total || 8;
-  }, [context.data?.stages]);
+  }, [context.data?.totalQuestions, context.data?.stages]);
 
   const currentQuestionNumber = useMemo(
     () => Object.values(stageAnswers).reduce((sum, answers) => sum + answers.length, 0) + 1,
@@ -49,9 +67,11 @@ export function InterviewRoom() {
     let cancelled = false;
     setRoomError('');
 
+    const requestedAt = performance.now();
     void getNextQuestion(sessionId, sessionToken, currentStage, stageAnswers[currentStage] ?? [])
       .then((result) => {
         if (cancelled || latestQuestionRequestRef.current !== requestId) return;
+        console.info(`[voice-timing] question:fetch: ${Math.round(performance.now() - requestedAt)}ms`);
         setCurrentQuestion(result.question);
       })
       .catch((error) => {
@@ -68,9 +88,8 @@ export function InterviewRoom() {
   const handleSubmitAnswer = async (transcript: string) => {
     if (!sessionToken || isSubmittingAnswer) return;
     if (!currentQuestion) {
-      const error = new Error('No interview question is loaded yet.');
       setRoomError('Wait for the next question before submitting a response.');
-      throw error;
+      throw new Error('No interview question is loaded yet.');
     }
 
     setRoomError('');
@@ -88,21 +107,17 @@ export function InterviewRoom() {
       const stageDefinition = INTERVIEW_STAGES.find((stage) => stage.id === currentStage);
       const isStageComplete = Boolean(stageDefinition && nextAnswers.length >= stageDefinition.questionCount);
 
+      setStageAnswers((previous) => ({ ...previous, [currentStage]: nextAnswers }));
+
       if (isStageComplete) {
         const nextStageIndex = currentStageIndex + 1;
         const nextStage = context.data?.stages[nextStageIndex];
         if (!nextStage || nextStage === 'closing_feedback') {
-          const report = await completeInterview(sessionId, sessionToken);
-          navigate(`/interview/${sessionId}/report`, { state: { report } });
+          await finalizeInterview();
           return;
         }
-
-        setStageAnswers((previous) => ({ ...previous, [currentStage]: nextAnswers }));
         setCurrentStageIndex(nextStageIndex);
-        return;
       }
-
-      setStageAnswers((previous) => ({ ...previous, [currentStage]: nextAnswers }));
     } catch (error) {
       console.error('Failed to submit the interview answer.', error);
       setRoomError('Unable to submit your answer right now. Please try again.');
@@ -112,37 +127,37 @@ export function InterviewRoom() {
     }
   };
 
-  const handleEndInterview = async () => {
+  const finalizeInterview = async () => {
     if (!sessionToken) return;
+    const report = await completeInterview(sessionId, sessionToken);
+    navigate(`/interview/${sessionId}/report`, { state: { report } });
+  };
+
+  const handleEndInterview = async () => {
+    if (isEndingInterview) return;
+    setIsEndingInterview(true);
     try {
-      const report = await completeInterview(sessionId, sessionToken);
-      navigate(`/interview/${sessionId}/report`, { state: { report } });
+      await finalizeInterview();
     } catch {
       setRoomError('Unable to end the interview right now. Please try again.');
+    } finally {
+      setIsEndingInterview(false);
     }
   };
 
   if (!sessionToken) {
     return (
       <div className="mx-auto flex min-h-screen max-w-2xl items-center px-6">
-        <p className="text-slate-200">Session token missing. Return to the access-code screen.</p>
+        <p className="text-ink-secondary">Session token missing. Return to the access-code screen.</p>
       </div>
     );
   }
 
   if (!onboardingComplete) {
     return (
-      <div className="min-h-screen bg-slate-950">
+      <div className="min-h-screen">
         <div className="mx-auto max-w-5xl px-6 py-8">
-          <div className="space-y-1 mb-6">
-            <p className="text-sm uppercase tracking-[0.4em] text-emerald-200">Live Mock Interview</p>
-            <h1 className="text-2xl font-bold text-white">
-              {context.data?.roleTitle ?? 'Loading…'}
-            </h1>
-            {context.data?.company && (
-              <p className="text-slate-400 text-sm">{context.data.company}</p>
-            )}
-          </div>
+          <RoomHeader roleTitle={context.data?.roleTitle} company={context.data?.company} />
         </div>
         <InterviewOnboarding onComplete={() => setOnboardingComplete(true)} />
       </div>
@@ -151,33 +166,27 @@ export function InterviewRoom() {
 
   return (
     <div className="mx-auto min-h-screen max-w-3xl space-y-6 px-6 py-10">
-      <div className="space-y-1">
-        <p className="text-sm uppercase tracking-[0.4em] text-emerald-200">Live Mock Interview</p>
-        <h1 className="text-2xl font-bold text-white">
-          {context.data?.roleTitle ?? 'Loading…'}
-        </h1>
-        {context.data?.company && (
-          <p className="text-slate-300 text-sm">{context.data.company}</p>
-        )}
-      </div>
+      <RoomHeader roleTitle={context.data?.roleTitle} company={context.data?.company} />
 
-      {roomError && (
-        <p className="rounded-2xl border border-rose-300/30 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">
-          {roomError}
-        </p>
-      )}
+      <QuestionProgress current={currentQuestionNumber} total={totalQuestions} />
+
+      {roomError && <ErrorNotice>{roomError}</ErrorNotice>}
 
       {env.voiceAgentProvider === 'browser' ? (
-        <VoiceAgentPanel question={currentQuestion} onSubmit={handleSubmitAnswer} />
+        <VoiceAgentPanel
+          question={currentQuestion}
+          onSubmit={handleSubmitAnswer}
+          onEndInterview={handleEndInterview}
+          isEndingInterview={isEndingInterview}
+        />
       ) : (
         <PipecatVoicePanel
           sessionId={sessionId}
           currentStage={currentStage}
           currentQuestion={currentQuestion}
-          currentQuestionNumber={currentQuestionNumber}
-          totalQuestions={totalQuestions}
-          onManualFallbackSubmit={handleSubmitAnswer}
+          onSubmitAnswer={handleSubmitAnswer}
           onEndInterview={handleEndInterview}
+          isEndingInterview={isEndingInterview}
         />
       )}
     </div>

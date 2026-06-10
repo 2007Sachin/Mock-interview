@@ -1,319 +1,182 @@
-import { useRef, useState } from 'react';
+import { useState } from 'react';
 import { usePipecatInterview } from '@/hooks/usePipecatInterview';
-
-// ─── Sub-components ──────────────────────────────────────────────────────────
-
-function AiPresence({ speaking, thinking }: { speaking: boolean; thinking: boolean }) {
-  const ringColor = speaking ? 'bg-sky-400/25' : thinking ? 'bg-amber-400/25' : 'bg-transparent';
-  const borderColor = speaking
-    ? 'border-sky-400/70'
-    : thinking
-    ? 'border-amber-400/70'
-    : 'border-white/20';
-  const iconColor = speaking ? 'text-sky-300' : thinking ? 'text-amber-300' : 'text-slate-400';
-
-  return (
-    <div className="relative flex h-20 w-20 items-center justify-center">
-      {speaking && (
-        <span className="absolute inset-0 animate-ping rounded-full bg-sky-400/15" />
-      )}
-      {thinking && (
-        <span className="absolute inset-0 animate-pulse rounded-full bg-amber-400/10" />
-      )}
-      <div className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full border-2 ${borderColor} ${ringColor} transition-all duration-300`}>
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" className={`${iconColor} transition-colors duration-300`}>
-          <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </div>
-    </div>
-  );
-}
-
-function MicTile({ speaking, muted }: { speaking: boolean; muted: boolean }) {
-  return (
-    <div className={`flex h-16 w-16 items-center justify-center rounded-full border-2 transition-all duration-300 ${
-      muted ? 'border-rose-400/50 bg-rose-400/10' :
-      speaking ? 'border-emerald-400/70 bg-emerald-400/15' :
-      'border-white/15 bg-white/5'
-    }`}>
-      {muted ? (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className="text-rose-400">
-          <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V6a3 3 0 00-5.94-.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 19v3M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      ) : (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" className={speaking ? 'text-emerald-400' : 'text-slate-400'}>
-          <path d="M12 2a3 3 0 013 3v6a3 3 0 01-6 0V5a3 3 0 013-3z" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v3M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      )}
-    </div>
-  );
-}
-
-function StatusPill({ label, variant }: { label: string; variant: 'sky' | 'amber' | 'emerald' | 'slate' }) {
-  const styles = {
-    sky: 'bg-sky-400/15 text-sky-300 border-sky-400/30',
-    amber: 'bg-amber-400/15 text-amber-300 border-amber-400/30',
-    emerald: 'bg-emerald-400/15 text-emerald-300 border-emerald-400/30',
-    slate: 'bg-white/5 text-slate-400 border-white/10',
-  };
-  return (
-    <span className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${styles[variant]}`}>
-      <span className={`h-1.5 w-1.5 rounded-full ${
-        variant === 'sky' ? 'bg-sky-400 animate-pulse' :
-        variant === 'amber' ? 'bg-amber-400 animate-pulse' :
-        variant === 'emerald' ? 'bg-emerald-400' :
-        'bg-slate-500'
-      }`} />
-      {label}
-    </span>
-  );
-}
-
-// ─── Main component ───────────────────────────────────────────────────────────
+import {
+  ErrorNotice,
+  PresenceRow,
+  QuestionCard,
+  TranscriptCard,
+  buttonStyles,
+  type StatusVariant,
+} from '@/components/VoiceCallUI';
 
 export function PipecatVoicePanel({
   sessionId,
   currentStage,
   currentQuestion,
-  currentQuestionNumber,
-  totalQuestions,
-  onManualFallbackSubmit,
+  onSubmitAnswer,
   onEndInterview,
+  isEndingInterview,
 }: {
   sessionId: string;
   currentStage: string;
   currentQuestion: string;
-  currentQuestionNumber: number;
-  totalQuestions: number;
-  onManualFallbackSubmit: (transcript: string) => Promise<void>;
+  onSubmitAnswer: (transcript: string) => Promise<void>;
   onEndInterview: () => Promise<void>;
+  isEndingInterview: boolean;
 }) {
   const [typeOpen, setTypeOpen] = useState(false);
   const [debugOpen, setDebugOpen] = useState(false);
   const [manualAnswer, setManualAnswer] = useState('');
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [isEnding, setIsEnding] = useState(false);
-  const submitRef = useRef(0);
 
   const voice = usePipecatInterview({
     sessionId,
     currentStage,
     currentQuestion,
-    onManualFallbackSubmit,
+    onSubmitAnswer,
   });
 
   const isConnected = voice.connectionStatus === 'connected';
 
   const statusLabel = !isConnected
-    ? (voice.connectionStatus === 'idle' ? 'Ready to start' : 'Connecting…')
+    ? voice.connectionStatus === 'idle'
+      ? 'Ready to start'
+      : 'Connecting…'
     : voice.botSpeaking
-    ? 'AI Speaking'
-    : voice.botThinking
-    ? 'Processing…'
-    : 'Listening to you';
+      ? 'AI speaking'
+      : voice.botThinking || isSubmitting
+        ? 'Processing…'
+        : voice.isMuted
+          ? 'Mic muted'
+          : 'Listening';
 
-  const statusVariant: 'sky' | 'amber' | 'emerald' | 'slate' = !isConnected
-    ? 'slate'
+  const statusVariant: StatusVariant = !isConnected
+    ? 'neutral'
     : voice.botSpeaking
-    ? 'sky'
-    : voice.botThinking
-    ? 'amber'
-    : 'emerald';
+      ? 'info'
+      : voice.botThinking || isSubmitting
+        ? 'warning'
+        : voice.isMuted
+          ? 'danger'
+          : 'accent';
 
-  const progressPercent = totalQuestions > 0
-    ? Math.min(100, Math.round(((currentQuestionNumber - 1) / totalQuestions) * 100))
-    : 0;
+  const hasAnswer = Boolean(voice.finalTranscript.trim());
 
-  const hasAnswer = Boolean(voice.finalTranscript.trim() || manualAnswer.trim());
-
-  const handleNextQuestion = async () => {
-    const text = voice.finalTranscript.trim() || manualAnswer.trim();
-    if (!text || isSubmitting) return;
-    const id = submitRef.current + 1;
-    submitRef.current = id;
+  const submitAnswer = async (text: string) => {
+    if (!text.trim() || isSubmitting) return;
     setIsSubmitting(true);
     try {
-      await voice.submitAnswer(text);
+      await voice.submitAnswer(text.trim());
       setManualAnswer('');
     } finally {
-      if (submitRef.current === id) setIsSubmitting(false);
-    }
-  };
-
-  const handleManualSubmit = async () => {
-    const text = manualAnswer.trim();
-    if (!text || isSubmitting) return;
-    const id = submitRef.current + 1;
-    submitRef.current = id;
-    setIsSubmitting(true);
-    try {
-      await voice.submitAnswer(text);
-      setManualAnswer('');
-    } finally {
-      if (submitRef.current === id) setIsSubmitting(false);
-    }
-  };
-
-  const handleEndInterview = async () => {
-    if (isEnding) return;
-    setIsEnding(true);
-    try {
-      await onEndInterview();
-    } finally {
-      setIsEnding(false);
+      setIsSubmitting(false);
     }
   };
 
   return (
     <div className="space-y-4">
-      {/* ── Progress bar ────────────────────────────────────────── */}
-      <div className="space-y-1.5">
-        <div className="flex items-center justify-between text-xs text-slate-400">
-          <span>Question {currentQuestionNumber} of {totalQuestions || '?'}</span>
-          <span>{progressPercent}% complete</span>
-        </div>
-        <div className="h-1.5 w-full rounded-full bg-white/10">
-          <div
-            className="h-1.5 rounded-full bg-emerald-400 transition-all duration-500"
-            style={{ width: `${progressPercent}%` }}
-          />
-        </div>
-      </div>
+      <PresenceRow
+        botSpeaking={voice.botSpeaking}
+        botThinking={voice.botThinking}
+        userSpeaking={voice.userSpeaking}
+        isMuted={voice.isMuted}
+        statusLabel={statusLabel}
+        statusVariant={statusVariant}
+      />
 
-      {/* ── Presence tiles ──────────────────────────────────────── */}
-      <div className="flex items-center justify-between rounded-[2rem] border border-white/10 bg-white/5 px-8 py-5">
-        {/* AI side */}
-        <div className="flex flex-col items-center gap-2">
-          <AiPresence speaking={voice.botSpeaking} thinking={voice.botThinking} />
-          <span className="text-xs text-slate-400">Interviewer</span>
-        </div>
+      <QuestionCard text={voice.assistantTranscript || currentQuestion} />
 
-        {/* Status pill (centre) */}
-        <StatusPill label={statusLabel} variant={statusVariant} />
+      <TranscriptCard
+        interimText={voice.interimTranscript}
+        finalText={voice.finalTranscript}
+        userSpeaking={voice.userSpeaking}
+      />
 
-        {/* Candidate side */}
-        <div className="flex flex-col items-center gap-2">
-          <MicTile speaking={voice.userSpeaking} muted={voice.isMuted} />
-          <span className="text-xs text-slate-400">You</span>
-        </div>
-      </div>
-
-      {/* ── Question card ────────────────────────────────────────── */}
-      <div className="rounded-[2rem] border border-sky-300/20 bg-sky-300/5 p-6 space-y-1">
-        <p className="text-xs uppercase tracking-[0.3em] text-sky-300">Current Question</p>
-        <p className="text-white text-base leading-relaxed">
-          {voice.assistantTranscript || currentQuestion || 'Waiting for interviewer…'}
-        </p>
-      </div>
-
-      {/* ── Live transcript ──────────────────────────────────────── */}
-      {(voice.interimTranscript || voice.finalTranscript) && (
-        <div className="rounded-[2rem] border border-emerald-300/20 bg-emerald-300/5 p-5 space-y-1.5">
-          <div className="flex items-center gap-2">
-            <span className={`h-2 w-2 rounded-full ${voice.userSpeaking ? 'bg-emerald-400 animate-pulse' : 'bg-emerald-400/50'}`} />
-            <p className="text-xs uppercase tracking-[0.3em] text-emerald-300">
-              {voice.userSpeaking ? 'You speaking…' : 'Your answer'}
-            </p>
-          </div>
-          {voice.interimTranscript && (
-            <p className="text-slate-400 text-sm italic">{voice.interimTranscript}</p>
-          )}
-          {voice.finalTranscript && (
-            <p className="text-white text-sm leading-relaxed">{voice.finalTranscript}</p>
-          )}
-        </div>
-      )}
-
-      {/* ── Primary controls ─────────────────────────────────────── */}
+      {/* Primary controls — always visible once connected */}
       {isConnected ? (
         <div className="flex flex-wrap items-center gap-3">
-          {/* Repeat question */}
           <button
             type="button"
             onClick={voice.repeatQuestion}
-            className="flex items-center gap-1.5 rounded-2xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm text-slate-300 hover:bg-white/10 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40"
-            aria-label="Repeat question"
+            className={buttonStyles.secondary}
+            aria-label="Repeat the current question"
           >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
-              <path d="M1 4v6h6M23 20v-6h-6" /><path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M1 4v6h6M23 20v-6h-6" />
+              <path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
             </svg>
             Repeat
           </button>
 
-          {/* Mute toggle */}
           <button
             type="button"
             onClick={voice.toggleMute}
-            className={`flex items-center gap-1.5 rounded-2xl border px-4 py-2.5 text-sm focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 ${
-              voice.isMuted
-                ? 'border-rose-400/40 bg-rose-400/10 text-rose-300 hover:bg-rose-400/15'
-                : 'border-white/15 bg-white/5 text-slate-300 hover:bg-white/10'
-            }`}
+            className={voice.isMuted ? buttonStyles.mutedActive : buttonStyles.secondary}
             aria-label={voice.isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-pressed={voice.isMuted}
           >
             {voice.isMuted ? 'Unmute' : 'Mute'}
           </button>
 
-          {/* Done / Next question — primary action */}
           <button
             type="button"
-            onClick={() => { void handleNextQuestion(); }}
+            onClick={() => {
+              void submitAnswer(voice.finalTranscript);
+            }}
             disabled={!hasAnswer || isSubmitting}
-            className="flex-1 rounded-2xl bg-emerald-400 px-5 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50 hover:bg-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
-            aria-label="Submit answer and move to next question"
+            className={`flex-1 ${buttonStyles.primary}`}
+            aria-label="Finish this answer and move to the next question"
           >
             {isSubmitting ? 'Submitting…' : 'Done — Next question →'}
           </button>
 
-          {/* End interview */}
           <button
             type="button"
-            onClick={() => { void handleEndInterview(); }}
-            disabled={isEnding}
-            className="rounded-2xl border border-white/15 bg-white/5 px-4 py-2.5 text-sm text-slate-400 hover:bg-rose-400/10 hover:text-rose-300 hover:border-rose-400/30 focus:outline-none focus-visible:ring-2 focus-visible:ring-white/40 disabled:opacity-50"
-            aria-label="End interview and generate report"
+            onClick={() => {
+              void onEndInterview();
+            }}
+            disabled={isEndingInterview}
+            className={buttonStyles.danger}
+            aria-label="End the interview and generate your report"
           >
-            {isEnding ? 'Ending…' : 'End interview'}
+            {isEndingInterview ? 'Ending…' : 'End interview'}
           </button>
         </div>
       ) : (
-        /* ── Start button (pre-connection) ──────────────────────── */
         <button
           type="button"
-          onClick={() => { void voice.startInterview(); }}
-          disabled={voice.kokoroLoading}
-          className="w-full rounded-2xl bg-emerald-400 px-5 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60 hover:bg-emerald-300 focus:outline-none focus-visible:ring-2 focus-visible:ring-emerald-400"
+          onClick={() => {
+            void voice.startInterview();
+          }}
+          disabled={voice.kokoroLoading || !currentQuestion.trim()}
+          className={`w-full py-3 ${buttonStyles.primary}`}
         >
-          {voice.kokoroLoading ? 'Loading audio…' : 'Start Interview'}
+          {voice.kokoroLoading
+            ? 'Loading audio…'
+            : currentQuestion.trim()
+              ? 'Start Interview'
+              : 'Preparing first question…'}
         </button>
       )}
 
-      {/* ── Errors & warnings ────────────────────────────────────── */}
       {voice.micPermissionStatus === 'denied' && (
-        <p className="rounded-2xl border border-rose-300/30 bg-rose-300/10 px-4 py-3 text-sm text-rose-100" role="alert">
-          Microphone access was denied. Enable it in browser settings and reconnect.
-        </p>
+        <ErrorNotice>Microphone access was denied. Enable it in browser settings and reconnect.</ErrorNotice>
       )}
-      {voice.error && (
-        <p className="rounded-2xl border border-rose-300/30 bg-rose-300/10 px-4 py-3 text-sm text-rose-100" role="alert">
-          {voice.error}
-        </p>
-      )}
+      {voice.error && <ErrorNotice>{voice.error}</ErrorNotice>}
 
-      {/* ── Type instead toggle ───────────────────────────────────── */}
+      {/* Typed fallback */}
       <div>
         <button
           type="button"
-          onClick={() => setTypeOpen((v) => !v)}
-          className="flex items-center gap-1.5 text-xs text-slate-500 hover:text-slate-300 focus:outline-none"
+          onClick={() => setTypeOpen((open) => !open)}
+          className="flex items-center gap-1.5 text-xs text-ink-muted transition-colors hover:text-ink-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+          aria-expanded={typeOpen}
         >
           <svg
             className={`h-3 w-3 transition-transform ${typeOpen ? 'rotate-180' : ''}`}
-            viewBox="0 0 16 16" fill="none"
+            viewBox="0 0 16 16"
+            fill="none"
+            aria-hidden="true"
           >
             <path d="M4 6l4 4 4-4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round" />
           </svg>
@@ -324,16 +187,19 @@ export function PipecatVoicePanel({
           <div className="mt-3 space-y-2">
             <textarea
               value={manualAnswer}
-              onChange={(e) => setManualAnswer(e.target.value)}
+              onChange={(event) => setManualAnswer(event.target.value)}
               rows={4}
-              className="w-full rounded-[2rem] border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none resize-none focus:border-emerald-400/50 placeholder-slate-600"
+              className="w-full resize-none rounded-2xl border border-edge/40 bg-canvas px-4 py-3 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent/50"
               placeholder="Type your answer here if voice isn't working…"
+              aria-label="Typed answer"
             />
             <button
               type="button"
-              onClick={() => { void handleManualSubmit(); }}
+              onClick={() => {
+                void submitAnswer(manualAnswer);
+              }}
               disabled={!manualAnswer.trim() || isSubmitting}
-              className="w-full rounded-2xl bg-emerald-400 px-4 py-2.5 text-sm font-semibold text-slate-950 disabled:opacity-50"
+              className={`w-full ${buttonStyles.primary}`}
             >
               {isSubmitting ? 'Submitting…' : 'Submit typed answer'}
             </button>
@@ -341,48 +207,64 @@ export function PipecatVoicePanel({
         )}
       </div>
 
-      {/* ── Technical details (dev only) ─────────────────────────── */}
+      {/* Technical details (debugging aid) */}
       <div>
         <button
           type="button"
-          onClick={() => setDebugOpen((v) => !v)}
-          className="text-xs text-slate-600 hover:text-slate-400 focus:outline-none"
+          onClick={() => setDebugOpen((open) => !open)}
+          className="text-xs text-ink-muted transition-colors hover:text-ink-secondary focus:outline-none focus-visible:ring-2 focus-visible:ring-accent/70"
+          aria-expanded={debugOpen}
         >
-          {debugOpen ? '▲ Hide' : '▼ Technical details'}
+          {debugOpen ? '▲ Hide technical details' : '▼ Technical details'}
         </button>
 
         {debugOpen && (
-          <div className="mt-3 rounded-2xl border border-white/10 bg-slate-950/40 p-4 space-y-3 text-xs text-slate-400">
+          <div className="mt-3 space-y-3 rounded-2xl border border-edge/30 bg-surface p-4 text-xs text-ink-secondary">
             <div className="grid gap-2 md:grid-cols-3">
-              <p><span className="text-slate-500">STT:</span> {voice.sttProvider} / {voice.sttModel}</p>
-              <p><span className="text-slate-500">LLM:</span> {voice.llmProvider} / {voice.llmModel}</p>
-              <p><span className="text-slate-500">TTS:</span> {voice.ttsProvider} / {voice.ttsModel}</p>
+              <p><span className="text-ink-muted">STT:</span> {voice.sttProvider} / {voice.sttModel}</p>
+              <p><span className="text-ink-muted">LLM:</span> {voice.llmProvider} / {voice.llmModel}</p>
+              <p><span className="text-ink-muted">TTS:</span> {voice.ttsProvider} / {voice.ttsModel}</p>
             </div>
             <div className="grid gap-2 md:grid-cols-2">
-              <p><span className="text-slate-500">Transport:</span> {voice.transport}</p>
-              <p><span className="text-slate-500">Connection:</span> {voice.connectionStatus}</p>
-              <p><span className="text-slate-500">Mic:</span> {voice.micPermissionStatus}</p>
-              <p><span className="text-slate-500">Session:</span> {sessionId}</p>
+              <p><span className="text-ink-muted">Transport:</span> {voice.transport}</p>
+              <p><span className="text-ink-muted">Connection:</span> {voice.connectionStatus}</p>
+              <p><span className="text-ink-muted">Mic:</span> {voice.micPermissionStatus}</p>
+              <p><span className="text-ink-muted">Session:</span> {sessionId}</p>
             </div>
-            <div className="rounded-xl border border-white/10 p-3 space-y-1">
-              <p className="text-slate-500 uppercase tracking-wider">Kokoro</p>
-              <p>{voice.kokoroError ? `Error: ${voice.kokoroError}` : voice.kokoroReady ? 'Ready' : voice.kokoroLoading ? 'Loading…' : voice.kokoroSupported ? 'Idle' : 'Not supported'}</p>
+            <div className="space-y-1 rounded-xl border border-edge/30 p-3">
+              <p className="uppercase tracking-wider text-ink-muted">Kokoro</p>
+              <p>
+                {voice.kokoroError
+                  ? `Error: ${voice.kokoroError}`
+                  : voice.kokoroReady
+                    ? 'Ready'
+                    : voice.kokoroLoading
+                      ? 'Loading…'
+                      : voice.kokoroSupported
+                        ? 'Idle'
+                        : 'Not supported'}
+              </p>
               {voice.voices.length > 0 && (
                 <select
                   value={voice.selectedVoice}
-                  onChange={(e) => voice.setVoice(e.target.value)}
-                  className="w-full rounded-xl border border-white/10 bg-slate-950 px-3 py-2 text-xs text-slate-100 outline-none mt-1"
+                  onChange={(event) => voice.setVoice(event.target.value)}
+                  className="mt-1 w-full rounded-xl border border-edge/30 bg-canvas px-3 py-2 text-xs text-ink outline-none"
+                  aria-label="Kokoro voice"
                 >
-                  {voice.voices.map((v) => (
-                    <option key={v.id} value={v.id}>{v.name} ({v.id})</option>
+                  {voice.voices.map((option) => (
+                    <option key={option.id} value={option.id}>
+                      {option.name} ({option.id})
+                    </option>
                   ))}
                 </select>
               )}
             </div>
             <button
               type="button"
-              onClick={() => { void voice.disconnect(); }}
-              className="rounded-xl border border-white/10 px-3 py-1.5 text-xs text-white"
+              onClick={() => {
+                void voice.disconnect();
+              }}
+              className={buttonStyles.secondary}
             >
               Disconnect
             </button>

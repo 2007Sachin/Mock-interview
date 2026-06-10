@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import time
 from dataclasses import dataclass, field
 
 from fastapi import WebSocket
@@ -124,18 +125,24 @@ class WebsocketPipelineRuntime:
         metadata: dict[str, object],
     ) -> None:
         event = build_user_interim_event(state.session_id, state.current_stage, text, event_seed, created_at)
-        await self._node_client.persist_transcript_event(
-            state.session_id,
-            {
-                "type": event.type,
-                "eventId": event.eventId,
-                "stage": event.stage,
-                "text": event.text,
-                "createdAt": event.createdAt,
-                "metadata": metadata,
-            },
-        )
+        # Echo to the client immediately; persist in the background so the
+        # live transcript never waits on a Node HTTP round-trip.
         await websocket.send_json(event.model_dump())
+        self._persist_in_background(
+            state.session_id,
+            "interim_transcript",
+            self._node_client.persist_transcript_event(
+                state.session_id,
+                {
+                    "type": event.type,
+                    "eventId": event.eventId,
+                    "stage": event.stage,
+                    "text": event.text,
+                    "createdAt": event.createdAt,
+                    "metadata": metadata,
+                },
+            ),
+        )
 
     async def _handle_final_transcript(
         self,
@@ -146,41 +153,53 @@ class WebsocketPipelineRuntime:
         created_at: str | None,
         metadata: dict[str, object],
     ) -> None:
+        turn_started_at = time.perf_counter()
         question = state.current_question
         event = build_user_final_event(state.session_id, state.current_stage, question, text, event_seed, created_at)
-        await self._node_client.persist_transcript_event(
-            state.session_id,
-            {
-                "type": event.type,
-                "eventId": event.eventId,
-                "turnId": event.turnId,
-                "stage": event.stage,
-                "question": event.question,
-                "text": event.text,
-                "createdAt": event.createdAt,
-                "metadata": metadata,
-            },
-        )
-        await self._node_client.persist_turn(
-            state.session_id,
-            {
-                "turnId": event.turnId,
-                "role": "user",
-                "stage": event.stage,
-                "question": event.question,
-                "input": event.text,
-                "createdAt": event.createdAt,
-                "metadata": metadata,
-            },
-        )
+        # Echo the final transcript right away, then persist concurrently with
+        # the LLM call instead of serially blocking the next assistant turn on
+        # two Node HTTP round-trips.
         await websocket.send_json(event.model_dump())
+        persistence = asyncio.gather(
+            self._node_client.persist_transcript_event(
+                state.session_id,
+                {
+                    "type": event.type,
+                    "eventId": event.eventId,
+                    "turnId": event.turnId,
+                    "stage": event.stage,
+                    "question": event.question,
+                    "text": event.text,
+                    "createdAt": event.createdAt,
+                    "metadata": metadata,
+                },
+            ),
+            self._node_client.persist_turn(
+                state.session_id,
+                {
+                    "turnId": event.turnId,
+                    "role": "user",
+                    "stage": event.stage,
+                    "question": event.question,
+                    "input": event.text,
+                    "createdAt": event.createdAt,
+                    "metadata": metadata,
+                },
+            ),
+        )
 
         state.prior_user_turns.append({"stage": event.stage, "question": event.question, "text": event.text})
         state.completed_user_turns += 1
         state.awaiting_user = False
         state.last_assistant_event = None
 
-        await self._send_next_assistant_turn(websocket, state, latest_user_text=text)
+        await self._send_next_assistant_turn(
+            websocket,
+            state,
+            latest_user_text=text,
+            pending_persistence=persistence,
+            turn_started_at=turn_started_at,
+        )
 
     async def _send_next_assistant_turn(
         self,
@@ -188,12 +207,15 @@ class WebsocketPipelineRuntime:
         state: SessionConversationState,
         *,
         latest_user_text: str | None = None,
+        pending_persistence: asyncio.Future | None = None,
+        turn_started_at: float | None = None,
     ) -> None:
         await websocket.send_json(build_bot_thinking_event(state.session_id, True).model_dump())
         try:
             is_final_stage = state.completed_user_turns >= len(state.context.interviewConfig.stages)
             stage = _resolve_stage_name(state.context, state.completed_user_turns)
             state.current_stage = stage
+            llm_started_at = time.perf_counter()
             turn = await self._orchestrator.generate_turn(
                 OrchestratorInput(
                     context=state.context,
@@ -203,13 +225,48 @@ class WebsocketPipelineRuntime:
                     is_final_stage=is_final_stage,
                 )
             )
+            log_event(
+                "voice_timing",
+                session_id=state.session_id,
+                stage="llm:generate-turn",
+                duration_ms=round((time.perf_counter() - llm_started_at) * 1000),
+            )
             await self._persist_and_emit_assistant_turn(websocket, state, turn)
+            if pending_persistence is not None:
+                await pending_persistence
+            if turn_started_at is not None:
+                log_event(
+                    "voice_timing",
+                    session_id=state.session_id,
+                    stage="turn:final-transcript→assistant-emitted",
+                    duration_ms=round((time.perf_counter() - turn_started_at) * 1000),
+                )
         except NodeClientError as exc:
+            await self._settle_pending_persistence(state.session_id, pending_persistence)
             await self._emit_error(websocket, state.session_id, "node_persistence_failed", str(exc))
         except Exception:
+            await self._settle_pending_persistence(state.session_id, pending_persistence)
             await self._emit_error(websocket, state.session_id, "assistant_unavailable", "Assistant orchestration is unavailable.")
         finally:
             await websocket.send_json(build_bot_thinking_event(state.session_id, False).model_dump())
+
+    async def _settle_pending_persistence(self, session_id: str, pending: asyncio.Future | None) -> None:
+        if pending is None or pending.done():
+            return
+        try:
+            await pending
+        except Exception as exc:
+            log_event("background_persist_failed", session_id=session_id, kind="final_transcript", error=str(exc))
+
+    def _persist_in_background(self, session_id: str, kind: str, coroutine) -> None:
+        task = asyncio.create_task(coroutine)
+
+        def _log_failure(done_task: asyncio.Task) -> None:
+            exc = done_task.exception()
+            if exc is not None:
+                log_event("background_persist_failed", session_id=session_id, kind=kind, error=str(exc))
+
+        task.add_done_callback(_log_failure)
 
     async def _persist_and_emit_assistant_turn(
         self,
@@ -224,37 +281,42 @@ class WebsocketPipelineRuntime:
             turn.assistantText,
             str(state.completed_user_turns),
         )
-        await self._node_client.persist_transcript_event(
-            state.session_id,
-            {
-                "type": assistant_event.type,
-                "eventId": assistant_event.eventId,
-                "turnId": assistant_event.turnId,
-                "stage": assistant_event.stage,
-                "question": assistant_event.question,
-                "text": assistant_event.text,
-                "createdAt": assistant_event.createdAt,
-                "metadata": {"shouldWaitForUser": turn.shouldWaitForUser, "isInterviewComplete": turn.isInterviewComplete},
-            },
-        )
-        await self._node_client.persist_turn(
-            state.session_id,
-            {
-                "turnId": assistant_event.turnId,
-                "role": "assistant",
-                "stage": assistant_event.stage,
-                "question": assistant_event.question,
-                "input": assistant_event.text,
-                "createdAt": assistant_event.createdAt,
-                "metadata": {"shouldWaitForUser": turn.shouldWaitForUser, "isInterviewComplete": turn.isInterviewComplete},
-            },
-        )
         state.current_stage = turn.stage
         state.current_question = turn.question
         state.awaiting_user = turn.shouldWaitForUser and not turn.isInterviewComplete
         state.interview_complete = turn.isInterviewComplete
         state.last_assistant_event = assistant_event if state.awaiting_user else None
+        # Emit first so client-side TTS starts immediately; persistence runs
+        # concurrently and failures still surface as node_persistence_failed.
         await websocket.send_json(assistant_event.model_dump())
+        turn_metadata = {"shouldWaitForUser": turn.shouldWaitForUser, "isInterviewComplete": turn.isInterviewComplete}
+        await asyncio.gather(
+            self._node_client.persist_transcript_event(
+                state.session_id,
+                {
+                    "type": assistant_event.type,
+                    "eventId": assistant_event.eventId,
+                    "turnId": assistant_event.turnId,
+                    "stage": assistant_event.stage,
+                    "question": assistant_event.question,
+                    "text": assistant_event.text,
+                    "createdAt": assistant_event.createdAt,
+                    "metadata": turn_metadata,
+                },
+            ),
+            self._node_client.persist_turn(
+                state.session_id,
+                {
+                    "turnId": assistant_event.turnId,
+                    "role": "assistant",
+                    "stage": assistant_event.stage,
+                    "question": assistant_event.question,
+                    "input": assistant_event.text,
+                    "createdAt": assistant_event.createdAt,
+                    "metadata": turn_metadata,
+                },
+            ),
+        )
 
         if turn.isInterviewComplete:
             complete_event = build_interview_complete_event(state.session_id, assistant_event.turnId)

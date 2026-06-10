@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import time
 from dataclasses import dataclass
 
 import httpx
@@ -8,6 +9,7 @@ from pydantic import BaseModel
 
 from app.career_ops.client import InternalVoiceContext
 from app.core.config import settings
+from app.core.observability import log_event
 from app.interview.prompt_builder import build_chat_messages
 
 
@@ -31,13 +33,22 @@ class OrchestratorInput:
 class GroqInterviewOrchestrator:
     def __init__(self) -> None:
         self._timeout = settings.request_timeout_seconds
+        # Reuse one HTTP client so each turn skips TCP/TLS setup latency.
+        self._client = httpx.AsyncClient(timeout=self._timeout)
 
     async def generate_turn(self, request: OrchestratorInput) -> AssistantTurn:
         if settings.groq_api_key.strip():
+            started_at = time.perf_counter()
             try:
-                return await self._generate_with_groq(request)
-            except Exception:
-                pass
+                turn = await self._generate_with_groq(request)
+                log_event(
+                    "voice_timing",
+                    stage="llm:groq-turn",
+                    duration_ms=round((time.perf_counter() - started_at) * 1000),
+                )
+                return turn
+            except Exception as exc:
+                log_event("groq_turn_failed", error=str(exc), stage=request.stage)
         return self._generate_fallback(request)
 
     async def _generate_with_groq(self, request: OrchestratorInput) -> AssistantTurn:
@@ -57,8 +68,9 @@ class GroqInterviewOrchestrator:
             "Authorization": f"Bearer {settings.groq_api_key}",
             "Content-Type": "application/json",
         }
-        async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
+        response = await self._client.post(
+            "https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload
+        )
         response.raise_for_status()
         content = _extract_content(response.json())
         parsed = _parse_json_object(content)

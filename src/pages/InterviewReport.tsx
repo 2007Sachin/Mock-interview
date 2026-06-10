@@ -1,4 +1,4 @@
-import { useLocation, useParams } from 'react-router-dom';
+import { Link, useLocation, useParams } from 'react-router-dom';
 import { ReportSummary } from '@/components/ReportSummary';
 import { formatSessionStorageKey } from '@/lib/signature';
 import { useInterviewSession } from '@/hooks/useInterviewSession';
@@ -15,14 +15,22 @@ export function InterviewReport() {
   if (!resolvedReport) {
     return (
       <div className="mx-auto flex min-h-screen max-w-3xl items-center px-6">
-        <p className="text-slate-200">Loading interview report…</p>
+        <p className="text-ink-secondary">Loading interview report…</p>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto min-h-screen max-w-4xl px-6 py-12">
+    <div className="mx-auto min-h-screen max-w-4xl space-y-6 px-6 py-12">
       <ReportSummary report={resolvedReport} />
+      <div className="flex justify-center">
+        <Link
+          to="/start"
+          className="rounded-2xl bg-accent px-6 py-3 text-sm font-semibold text-accent-contrast transition-colors hover:bg-accent-strong focus:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2 focus-visible:ring-offset-canvas"
+        >
+          Practice another interview
+        </Link>
+      </div>
     </div>
   );
 }

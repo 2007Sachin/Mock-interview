@@ -266,7 +266,7 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
       {/* Debug / fallback note for development */}
       {env.voiceAgentProvider === 'browser' && (
         <p className="text-center text-xs text-slate-500">
-          Running in browser fallback mode. Production uses Pipecat + Mistral + Kokoro.
+          Running in browser fallback mode. Production uses Pipecat + Groq + Kokoro.
         </p>
       )}
     </div>

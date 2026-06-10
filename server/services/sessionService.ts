@@ -138,12 +138,14 @@ export class SessionService {
 
   async getSafeContext(sessionId: string, sessionToken: string) {
     const session = await this.requireAuthorizedSession(sessionId, sessionToken);
+    const briefRecord = await this.store.findInterviewBrief(sessionId).catch(() => null);
     return {
       sessionId: session.id,
       candidateName: session.payload.user.name,
       roleTitle: session.payload.opportunity.title,
       company: session.payload.opportunity.company,
       stages: session.payload.interviewConfig.stages,
+      totalQuestions: briefRecord?.questionBank.length ?? null,
       status: session.status,
     };
   }

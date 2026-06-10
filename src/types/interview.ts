@@ -48,6 +48,8 @@ export interface InterviewSessionContext {
   roleTitle: string;
   company: string;
   stages: string[];
+  /** Length of the brief's questionBank, when a brief exists for the session. */
+  totalQuestions?: number | null;
   status: InterviewSessionStatus;
 }
 
@@ -58,7 +60,7 @@ export interface NextQuestionResponse {
   totalQuestionsInStage: number;
 }
 
-export type PipecatTransportType = 'daily';
+export type PipecatTransportType = 'websocket' | 'daily';
 
 export type InterviewProviderMetadata = {
   sttProvider: string;
@@ -82,17 +84,32 @@ export type PipecatConnectionStatus =
   | 'disconnecting'
   | 'error';
 
-export type InterviewVoiceConnectPayload = {
+type InterviewVoiceConnectPayloadBase = {
+  sessionId: string;
+  candidateName: string;
+  roleTitle: string;
+  company: string;
+  stages: string[];
   transport: PipecatTransportType;
-  connectParams: Record<string, unknown>;
   currentStage?: string | null;
   currentQuestion?: string | null;
-  providerMetadata?: Partial<InterviewProviderMetadata> | null;
 };
 
-export type ManualInterviewTurnInput = {
-  input: string;
+export type WebsocketInterviewVoiceConnectPayload = InterviewVoiceConnectPayloadBase & {
+  transport: 'websocket';
+  voiceToken: string;
+  pipecatConnectUrl: string;
 };
+
+export type DailyInterviewVoiceConnectPayload = InterviewVoiceConnectPayloadBase & {
+  transport: 'daily';
+  connectParams: Record<string, unknown> | null;
+  setupError: string | null;
+};
+
+export type InterviewVoiceConnectPayload =
+  | WebsocketInterviewVoiceConnectPayload
+  | DailyInterviewVoiceConnectPayload;
 
 type PipecatBrowserEventBase = {
   type: string;

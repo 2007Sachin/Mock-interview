@@ -4,7 +4,6 @@ import {
   InterviewReport,
   InterviewSessionContext,
   InterviewVoiceConnectPayload,
-  ManualInterviewTurnInput,
   NextQuestionResponse,
   SessionVerifyResponse,
 } from '@/types/interview';
@@ -140,14 +139,6 @@ export function connectInterviewVoice(sessionId: string, sessionToken: string) {
   return request<InterviewVoiceConnectPayload>(`/api/interview-sessions/${sessionId}/voice/connect`, {
     method: 'POST',
     headers: getHeaders(sessionToken),
-  });
-}
-
-export function submitManualInterviewTurn(sessionId: string, sessionToken: string, input: ManualInterviewTurnInput) {
-  return request<{ ok: true }>(`/api/interview-sessions/${sessionId}/voice/manual-turn`, {
-    method: 'POST',
-    headers: getHeaders(sessionToken),
-    body: JSON.stringify(input),
   });
 }
 

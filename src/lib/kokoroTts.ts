@@ -58,6 +58,7 @@ export type KokoroTtsSnapshot = {
 type QueueItem = {
   id: number;
   text: string;
+  queuedAt: number;
   resolve: () => void;
 };
 
@@ -106,6 +107,10 @@ function normalizeDtype(value: string): KokoroDtype {
   }
 }
 
+// The first chunk is kept short so the first audible audio arrives sooner;
+// later chunks merge sentences to reduce the number of generation calls.
+const FIRST_CHUNK_LENGTH = 120;
+
 function chunkText(text: string, maxChunkLength = 220) {
   const normalized = text.replace(/\s+/g, ' ').trim();
   if (!normalized) {
@@ -115,6 +120,8 @@ function chunkText(text: string, maxChunkLength = 220) {
   const sentenceLikeParts = normalized.match(/[^.!?]+[.!?]?/g) ?? [normalized];
   const chunks: string[] = [];
   let current = '';
+
+  const chunkLimit = () => (chunks.length === 0 ? FIRST_CHUNK_LENGTH : maxChunkLength);
 
   const pushChunk = (value: string) => {
     const trimmed = value.trim();
@@ -129,7 +136,7 @@ function chunkText(text: string, maxChunkLength = 220) {
       continue;
     }
 
-    if (sentence.length > maxChunkLength) {
+    if (sentence.length > chunkLimit()) {
       if (current) {
         pushChunk(current);
         current = '';
@@ -139,7 +146,7 @@ function chunkText(text: string, maxChunkLength = 220) {
       let wordChunk = '';
       for (const word of words) {
         const next = wordChunk ? `${wordChunk} ${word}` : word;
-        if (next.length <= maxChunkLength) {
+        if (next.length <= chunkLimit()) {
           wordChunk = next;
           continue;
         }
@@ -152,7 +159,7 @@ function chunkText(text: string, maxChunkLength = 220) {
     }
 
     const next = current ? `${current} ${sentence}` : sentence;
-    if (next.length <= maxChunkLength) {
+    if (next.length <= chunkLimit()) {
       current = next;
       continue;
     }
@@ -334,6 +341,7 @@ export class KokoroTtsService {
       this.queue.push({
         id: this.nextQueueId++,
         text: normalized,
+        queuedAt: performance.now(),
         resolve,
       });
 
@@ -459,14 +467,7 @@ export class KokoroTtsService {
         this.currentQueueItemWorkerId = workerId;
 
         try {
-          const chunks = chunkText(item.text);
-          for (const chunk of chunks) {
-            if (this.speakToken !== expectedToken) {
-              break;
-            }
-
-            await this.playChunk(chunk, expectedToken);
-          }
+          await this.playChunkedText(item, expectedToken);
         } finally {
           if (this.currentQueueItemWorkerId === workerId) {
             this.currentQueueItem = null;
@@ -492,20 +493,49 @@ export class KokoroTtsService {
     }
   }
 
-  private async playChunk(text: string, expectedToken: number) {
-    if (!this.tts || this.speakToken !== expectedToken) {
+  /**
+   * Generates and plays chunks in a pipeline: while one chunk is playing the
+   * next chunk is already being generated, which removes the per-chunk
+   * generation gap from the audible output.
+   */
+  private async playChunkedText(item: QueueItem, expectedToken: number) {
+    const tts = this.tts;
+    if (!tts || this.speakToken !== expectedToken) {
       return;
     }
 
-    const audio = await this.tts.generate(text, {
-      voice: this.snapshot.selectedVoice as KokoroVoiceId,
-    });
-
-    if (this.speakToken !== expectedToken) {
+    const chunks = chunkText(item.text);
+    if (chunks.length === 0) {
       return;
     }
 
-    await this.playRawAudio(audio, expectedToken);
+    const generate = (text: string) =>
+      tts.generate(text, { voice: this.snapshot.selectedVoice as KokoroVoiceId });
+
+    let pendingAudio = generate(chunks[0]);
+    let firstAudioLogged = false;
+
+    for (let index = 0; index < chunks.length; index += 1) {
+      const audio = await pendingAudio;
+      if (this.speakToken !== expectedToken) {
+        return;
+      }
+
+      if (index + 1 < chunks.length) {
+        pendingAudio = generate(chunks[index + 1]);
+        // If playback is cancelled before this prefetch is awaited, don't
+        // surface it as an unhandled rejection.
+        void pendingAudio.catch(() => undefined);
+      }
+
+      if (!firstAudioLogged) {
+        firstAudioLogged = true;
+        // Latency instrumentation — see README "Voice latency timings".
+        console.info(`[voice-timing] tts:queue→first-audio: ${Math.round(performance.now() - item.queuedAt)}ms`);
+      }
+
+      await this.playRawAudio(audio, expectedToken);
+    }
   }
 
   private async playRawAudio(audio: KokoroRawAudio, expectedToken: number) {

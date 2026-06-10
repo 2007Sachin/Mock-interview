@@ -272,6 +272,36 @@ Rules:
 
 ---
 
+## Voice latency timings
+
+The speak → transcribe → LLM → TTS loop is instrumented so you can see which
+stage is slow when testing locally.
+
+**Browser console** — every timing line is prefixed with `[voice-timing]`:
+
+| Log line | What it measures |
+| --- | --- |
+| `question:fetch` | REST round-trip to load the next question |
+| `tts:queue→first-audio` | Question text handed to TTS until the first audio actually plays (browser speechSynthesis or Kokoro) |
+| `stt:listen→first-result` | Mic opened until the first recognition result arrives |
+| `stt:listen→final-segment` | Mic opened until a final transcript segment lands |
+| `answer:submit→next-question-ack` | "Next question" pressed until the server acknowledges the answer (browser provider) |
+| `answer:submit→assistant-text` | Answer sent until the assistant's next turn arrives (Pipecat provider) |
+| `llm:thinking` | Backend `bot_thinking` window (Pipecat provider) |
+| `voice:connect` | Voice transport connection setup (Pipecat provider) |
+
+**Voice-agent service logs** — structured `voice_timing` events:
+
+- `llm:groq-turn` — Groq chat-completion round-trip.
+- `llm:generate-turn` — full orchestrator turn (includes fallback path).
+- `turn:final-transcript→assistant-emitted` — total server-side turn time from
+  receiving the final transcript to emitting the assistant's reply.
+
+How to read them: if `tts:queue→first-audio` dominates, the TTS engine is slow
+to start (Kokoro model load / browser voice). If `llm:*` dominates, the lag is
+the LLM provider or network. If `stt:*` values are large, the browser speech
+engine is slow to finalize — that part is runtime/browser dependent, not code.
+
 ## Verification Commands
 
 ```bash

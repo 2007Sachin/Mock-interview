@@ -6,9 +6,12 @@ import { env } from '@/lib/env';
 import { ApiRequestError, connectInterviewVoice } from '@/lib/mockInterviewApi';
 import { formatSessionStorageKey } from '@/lib/signature';
 import type {
+  DailyInterviewVoiceConnectPayload,
   InterviewProviderMetadata,
   PipecatBrowserEvent,
   PipecatConnectionStatus,
+  PipecatTransportType,
+  WebsocketInterviewVoiceConnectPayload,
 } from '@/types/interview';
 
 const PROVIDER_PLACEHOLDERS: InterviewProviderMetadata = {
@@ -24,33 +27,13 @@ type UsePipecatInterviewOptions = {
   sessionId: string;
   currentStage: string;
   currentQuestion: string;
-  onManualFallbackSubmit?: (transcript: string) => Promise<void>;
+  onSubmitAnswer: (transcript: string) => Promise<void>;
 };
 
-type PipecatTransportType = 'websocket' | 'daily';
-
-type VoiceConnectPayloadBase = {
-  sessionId: string;
-  candidateName: string;
-  roleTitle: string;
-  company: string;
-  stages: string[];
-  transport: PipecatTransportType;
-  currentStage?: string | null;
-  currentQuestion?: string | null;
-};
-
-type WebsocketInterviewVoiceConnectPayload = VoiceConnectPayloadBase & {
-  transport: 'websocket';
-  voiceToken: string;
-  pipecatConnectUrl: string;
-};
-
-type DailyInterviewVoiceConnectPayload = VoiceConnectPayloadBase & {
-  transport: 'daily';
-  connectParams: Record<string, unknown> | null;
-  setupError: string | null;
-};
+/** Lightweight latency instrumentation. See README "Voice latency timings". */
+function logTiming(stage: string, startedAt: number) {
+  console.info(`[voice-timing] ${stage}: ${Math.round(performance.now() - startedAt)}ms`);
+}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message.trim()) {
@@ -170,12 +153,14 @@ export function usePipecatInterview({
   sessionId,
   currentStage,
   currentQuestion,
-  onManualFallbackSubmit,
+  onSubmitAnswer,
 }: UsePipecatInterviewOptions) {
   const kokoro = useKokoroTts();
   const clientRef = useRef<PipecatClient | null>(null);
   const websocketRef = useRef<WebSocket | null>(null);
   const lastSpokenAssistantTextRef = useRef('');
+  const thinkingStartedAtRef = useRef(0);
+  const answerSubmittedAtRef = useRef(0);
   const kokoroRef = useRef({
     isReady: kokoro.isReady,
     speak: kokoro.speak,
@@ -207,10 +192,6 @@ export function usePipecatInterview({
   }, [currentStage]);
 
   useEffect(() => {
-    setResolvedQuestion(currentQuestion);
-  }, [currentQuestion]);
-
-  useEffect(() => {
     return () => {
       void clientRef.current?.disconnect();
       clientRef.current = null;
@@ -240,6 +221,20 @@ export function usePipecatInterview({
     });
   };
 
+  // When the room advances the question outside of the websocket event flow
+  // (manual fallback / REST question loop), keep the panel and TTS in sync so
+  // the interview doesn't silently stall on the previous question.
+  useEffect(() => {
+    setResolvedQuestion(currentQuestion);
+    const websocketDrivesQuestions = websocketRef.current?.readyState === WebSocket.OPEN;
+    if (connectionStatus === 'connected' && !websocketDrivesQuestions && currentQuestion.trim()) {
+      setAssistantTranscript(currentQuestion);
+      speakAssistantText(currentQuestion);
+    }
+    // speakAssistantText is stable in practice (refs only).
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [currentQuestion, connectionStatus]);
+
   const applyBrowserEvent = (event: PipecatBrowserEvent) => {
     switch (event.type) {
       case 'user_interim_transcript':
@@ -267,6 +262,10 @@ export function usePipecatInterview({
         setFinalTranscript(event.text);
         return;
       case 'assistant_text':
+        if (answerSubmittedAtRef.current) {
+          logTiming('answer:submit→assistant-text', answerSubmittedAtRef.current);
+          answerSubmittedAtRef.current = 0;
+        }
         setResolvedStage(event.stage);
         setResolvedQuestion(event.question);
         setProviderMetadata((previous) =>
@@ -281,6 +280,12 @@ export function usePipecatInterview({
         speakAssistantText(event.text);
         return;
       case 'bot_thinking':
+        if (event.isThinking) {
+          thinkingStartedAtRef.current = performance.now();
+        } else if (thinkingStartedAtRef.current) {
+          logTiming('llm:thinking', thinkingStartedAtRef.current);
+          thinkingStartedAtRef.current = 0;
+        }
         setBotThinking(event.isThinking);
         return;
       case 'error':
@@ -441,11 +446,10 @@ export function usePipecatInterview({
     }
 
     setError('');
+    const connectStartedAt = performance.now();
 
     try {
-      const voiceConnect = await connectInterviewVoice(sessionId, sessionToken) as
-        | WebsocketInterviewVoiceConnectPayload
-        | DailyInterviewVoiceConnectPayload;
+      const voiceConnect = await connectInterviewVoice(sessionId, sessionToken);
       setTransport(voiceConnect.transport);
       setResolvedStage(voiceConnect.currentStage ?? currentStage);
       setResolvedQuestion(voiceConnect.currentQuestion ?? currentQuestion);
@@ -464,10 +468,12 @@ export function usePipecatInterview({
         await client.connect(
           dailyVoiceConnect.connectParams as NonNullable<Parameters<PipecatClient['connect']>[0]>,
         );
+        logTiming('voice:connect', connectStartedAt);
         return;
       }
 
-      await connectWebsocketTransport(voiceConnect as WebsocketInterviewVoiceConnectPayload);
+      await connectWebsocketTransport(voiceConnect);
+      logTiming('voice:connect', connectStartedAt);
     } catch (connectError) {
       const nextError =
         connectError instanceof ApiRequestError && connectError.status === 404
@@ -528,14 +534,15 @@ export function usePipecatInterview({
     speakAssistantText(resolvedQuestion, true);
   };
 
-  const submitAnswer = async (text?: string) => {
-    const nextText = (text ?? finalTranscript).trim();
+  const submitAnswer = async (text: string) => {
+    const nextText = text.trim();
     if (!nextText) {
       setError('No answer recorded yet. Speak or type your answer first.');
       return;
     }
 
     setError('');
+    answerSubmittedAtRef.current = performance.now();
 
     if (transport === 'websocket' && websocketRef.current?.readyState === WebSocket.OPEN) {
       websocketRef.current.send(JSON.stringify({
@@ -547,13 +554,11 @@ export function usePipecatInterview({
       }));
     }
 
-    if (onManualFallbackSubmit) {
-      try {
-        await onManualFallbackSubmit(nextText);
-      } catch (submitError) {
-        setError(`Unable to record answer. ${getErrorMessage(submitError)}`);
-        return;
-      }
+    try {
+      await onSubmitAnswer(nextText);
+    } catch (submitError) {
+      setError(`Unable to record answer. ${getErrorMessage(submitError)}`);
+      return;
     }
 
     setInterimTranscript('');
@@ -574,47 +579,6 @@ export function usePipecatInterview({
     }
   };
 
-  const submitManualAnswer = async (text: string) => {
-    const nextText = text.trim();
-    if (!nextText) {
-      const nextError = 'Enter a manual answer before submitting.';
-      setError(nextError);
-      throw new Error(nextError);
-    }
-
-    if (!onManualFallbackSubmit) {
-      const nextError =
-        'Manual fallback submit handler is unavailable. The future /voice/manual-turn endpoint is typed but not active in this frontend task.';
-      setError(nextError);
-      throw new Error(nextError);
-    }
-
-    setError('');
-
-    if (transport === 'websocket' && websocketRef.current?.readyState === WebSocket.OPEN) {
-      websocketRef.current.send(JSON.stringify({
-        type: 'user_final_transcript',
-        text: nextText,
-        stage: resolvedStage,
-        question: resolvedQuestion,
-        createdAt: new Date().toISOString(),
-      }));
-      setInterimTranscript('');
-      setFinalTranscript(nextText);
-      return;
-    }
-
-    try {
-      await onManualFallbackSubmit(nextText);
-      setInterimTranscript('');
-      setFinalTranscript(nextText);
-    } catch (submitError) {
-      const nextError = `Unable to submit the manual fallback answer. ${getErrorMessage(submitError)}`;
-      setError(nextError);
-      throw new Error(nextError);
-    }
-  };
-
   return {
     connectionStatus,
     userSpeaking,
@@ -632,11 +596,8 @@ export function usePipecatInterview({
     disconnect,
     startInterview,
     submitAnswer,
-    submitManualAnswer,
     repeatQuestion,
     toggleMute,
-    enableAudio: kokoro.init,
-    stopSpeaking: kokoro.stop,
     error,
     kokoroSupported: kokoro.isSupported,
     kokoroLoading: kokoro.isLoading,

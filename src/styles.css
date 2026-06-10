@@ -4,12 +4,49 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens — single source of truth for the app palette.
+ * Channels are raw RGB triplets so Tailwind opacity modifiers
+ * (e.g. bg-accent/15) keep working. Mapped to semantic names in
+ * tailwind.config.ts: canvas, surface, edge, ink, accent, info,
+ * warning, danger.
+ */
 @layer base {
+  :root {
+    /* Backgrounds */
+    --c-canvas: 8 12 22; /* page background */
+    --c-surface: 16 24 40; /* cards */
+    --c-surface-raised: 24 34 58; /* nested / hover surfaces */
+
+    /* Borders */
+    --c-edge: 89 104 134;
+
+    /* Text */
+    --c-ink: 241 245 249;
+    --c-ink-secondary: 148 163 184;
+    --c-ink-muted: 100 116 139;
+
+    /* Accent (primary actions) */
+    --c-accent: 52 211 153;
+    --c-accent-strong: 110 231 183;
+    --c-accent-contrast: 4 32 22;
+
+    /* Status */
+    --c-info: 56 189 248; /* AI speaking */
+    --c-warning: 251 191 36; /* processing */
+    --c-danger: 251 113 133; /* errors, destructive */
+  }
+
   body {
-    @apply min-h-screen bg-[radial-gradient(circle_at_top,_rgba(16,185,129,0.16),_transparent_35%),linear-gradient(180deg,_#020617_0%,_#0f172a_100%)] font-sans text-slate-100;
+    @apply min-h-screen bg-canvas bg-[radial-gradient(circle_at_top,_rgb(var(--c-accent)_/_0.10),_transparent_40%)] font-sans text-ink antialiased;
   }
 
   * {
-    @apply border-slate-800;
+    @apply border-edge/30;
+  }
+
+  /* Accessible focus rings everywhere a custom ring is not provided. */
+  :focus-visible {
+    @apply outline-none ring-2 ring-accent/70 ring-offset-2 ring-offset-canvas;
   }
 }
