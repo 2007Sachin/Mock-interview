@@ -1,6 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { useDeviceReadiness } from '@/hooks/useDeviceReadiness';
 import { env } from '@/lib/env';
+import { INTERVIEWER_NAME } from '@/lib/interviewer';
 
 type StepStatus = 'pending' | 'pass' | 'fail' | 'skipped';
 
@@ -105,11 +106,12 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
   return (
     <div className="mx-auto max-w-xl space-y-8 px-4 py-10">
       <div className="space-y-1">
-        <p className="text-xs uppercase tracking-[0.4em] text-emerald-300">Pre-interview check</p>
-        <h2 className="text-2xl font-bold text-white">Get ready for your interview</h2>
-        <p className="text-sm text-slate-400">
-          We need access to your microphone and camera before we begin. This stays local — nothing is
-          recorded without your knowledge.
+        <p className="text-xs uppercase tracking-[0.4em] text-accent">Joining your interview</p>
+        <h2 className="text-2xl font-bold text-ink">Let's get your mic and speakers ready</h2>
+        <p className="text-sm text-ink-secondary">
+          You're moments away from meeting {INTERVIEWER_NAME}. We need microphone access so
+          {' '}{INTERVIEWER_NAME} can hear your answers — this stays local, and nothing is recorded
+          without your knowledge.
         </p>
       </div>
 
@@ -245,9 +247,9 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
             device.markReady();
             onComplete();
           }}
-          className="w-full rounded-[2rem] bg-emerald-400 px-6 py-4 text-base font-semibold text-slate-950 disabled:opacity-40 disabled:cursor-not-allowed"
+          className="w-full rounded-[2rem] bg-accent px-6 py-4 text-base font-semibold text-accent-contrast transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
         >
-          Start Interview
+          Continue — meet your interviewer
         </button>
 
         {!device.micAllowed && device.state !== 'idle' && device.state !== 'requesting_permissions' && (

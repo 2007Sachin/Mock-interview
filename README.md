@@ -126,9 +126,11 @@ uv run uvicorn app.main:app --host 0.0.0.0 --port 7860
 1. Open [http://localhost:5174](http://localhost:5174) in **Chrome or Edge** (browser STT requires these).
 2. Choose **Skill** mode.
 3. Enter a skill, e.g. `React`, and click Start.
-4. Complete the device/mic check and grant microphone permission.
-5. Speak your answers when the interviewer asks.
-6. After the interview ends, confirm that a **scored report** renders with overall score, strengths, and improvements.
+4. Read the **"What to expect"** briefing (length, question count, interviewer name) and click Continue.
+5. Complete the device/mic check and grant microphone permission.
+6. On **"Meet your interviewer"**, the animated interviewer (default name "Asha" — override with `VITE_INTERVIEWER_NAME`) speaks a short intro. Click **Start interview**.
+7. Speak your answers when the interviewer asks; click **Done — Next question** in the bottom toolbar to advance.
+8. After the last question (or **End interview**), the interviewer speaks a closing line while the report generates, then the **scored report** opens with overall score, strengths, and improvements.
 
 > **Note:** Browser STT (`SpeechRecognition`) requires Chrome or Edge. Firefox and Safari do not support the Web Speech API. No server-side audio is processed — the browser transcribes speech locally and sends text to the Python service.
 

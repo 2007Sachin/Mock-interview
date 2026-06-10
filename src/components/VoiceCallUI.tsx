@@ -3,102 +3,14 @@ import type { ReactNode } from 'react';
 // Shared presentational pieces for the interview "live call" surface.
 // Used by both VoiceAgentPanel (browser provider) and PipecatVoicePanel.
 
-export type StatusVariant = 'info' | 'warning' | 'accent' | 'neutral' | 'danger';
-
-const STATUS_STYLES: Record<StatusVariant, { pill: string; dot: string }> = {
-  info: { pill: 'bg-info/15 text-info border-info/30', dot: 'bg-info animate-pulse' },
-  warning: { pill: 'bg-warning/15 text-warning border-warning/30', dot: 'bg-warning animate-pulse' },
-  accent: { pill: 'bg-accent/15 text-accent border-accent/30', dot: 'bg-accent animate-pulse' },
-  neutral: { pill: 'bg-surface-raised/60 text-ink-secondary border-edge/30', dot: 'bg-ink-muted' },
-  danger: { pill: 'bg-danger/15 text-danger border-danger/30', dot: 'bg-danger' },
-};
-
-export function StatusPill({ label, variant }: { label: string; variant: StatusVariant }) {
-  const styles = STATUS_STYLES[variant];
+/**
+ * Fixed bottom control bar, styled like a video-call toolbar. Children are the
+ * call controls (Repeat, Mute, Next question, End interview).
+ */
+export function ControlBar({ children }: { children: ReactNode }) {
   return (
-    <span
-      role="status"
-      className={`inline-flex items-center gap-1.5 rounded-full border px-3 py-1 text-xs font-medium ${styles.pill}`}
-    >
-      <span className={`h-1.5 w-1.5 rounded-full ${styles.dot}`} />
-      {label}
-    </span>
-  );
-}
-
-export function AiPresence({ speaking, thinking }: { speaking: boolean; thinking: boolean }) {
-  const borderColor = speaking ? 'border-info/70 bg-info/20' : thinking ? 'border-warning/70 bg-warning/20' : 'border-edge/40 bg-surface-raised/40';
-  const iconColor = speaking ? 'text-info' : thinking ? 'text-warning' : 'text-ink-muted';
-
-  return (
-    <div className="relative flex h-20 w-20 items-center justify-center">
-      {speaking && <span className="absolute inset-0 animate-ping rounded-full bg-info/15" />}
-      {thinking && <span className="absolute inset-0 animate-pulse rounded-full bg-warning/10" />}
-      <div className={`relative z-10 flex h-16 w-16 items-center justify-center rounded-full border-2 transition-all duration-300 ${borderColor}`}>
-        <svg width="28" height="28" viewBox="0 0 24 24" fill="none" aria-hidden="true" className={`${iconColor} transition-colors duration-300`}>
-          <circle cx="12" cy="8" r="4" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M4 20c0-4 3.6-7 8-7s8 3 8 7" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      </div>
-    </div>
-  );
-}
-
-export function MicTile({ speaking, muted }: { speaking: boolean; muted: boolean }) {
-  return (
-    <div
-      className={`flex h-16 w-16 items-center justify-center rounded-full border-2 transition-all duration-300 ${
-        muted
-          ? 'border-danger/50 bg-danger/10'
-          : speaking
-            ? 'border-accent/70 bg-accent/15'
-            : 'border-edge/40 bg-surface-raised/40'
-      }`}
-    >
-      {muted ? (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" className="text-danger">
-          <line x1="3" y1="3" x2="21" y2="21" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M9 9v3a3 3 0 005.12 2.12M15 9.34V6a3 3 0 00-5.94-.6" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-          <path d="M17 16.95A7 7 0 015 12v-2m14 0v2a7 7 0 01-.11 1.23M12 19v3M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      ) : (
-        <svg width="22" height="22" viewBox="0 0 24 24" fill="none" aria-hidden="true" className={speaking ? 'text-accent' : 'text-ink-muted'}>
-          <path d="M12 2a3 3 0 013 3v6a3 3 0 01-6 0V5a3 3 0 013-3z" stroke="currentColor" strokeWidth="1.5" />
-          <path d="M19 10v2a7 7 0 01-14 0v-2M12 19v3M8 23h8" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
-        </svg>
-      )}
-    </div>
-  );
-}
-
-export function PresenceRow({
-  botSpeaking,
-  botThinking,
-  userSpeaking,
-  isMuted,
-  statusLabel,
-  statusVariant,
-}: {
-  botSpeaking: boolean;
-  botThinking: boolean;
-  userSpeaking: boolean;
-  isMuted: boolean;
-  statusLabel: string;
-  statusVariant: StatusVariant;
-}) {
-  return (
-    <div className="flex items-center justify-between rounded-3xl border border-edge/30 bg-surface px-8 py-5">
-      <div className="flex flex-col items-center gap-2">
-        <AiPresence speaking={botSpeaking} thinking={botThinking} />
-        <span className="text-xs text-ink-secondary">Interviewer</span>
-      </div>
-
-      <StatusPill label={statusLabel} variant={statusVariant} />
-
-      <div className="flex flex-col items-center gap-2">
-        <MicTile speaking={userSpeaking} muted={isMuted} />
-        <span className="text-xs text-ink-secondary">You</span>
-      </div>
+    <div className="fixed inset-x-0 bottom-0 z-20 border-t border-edge/30 bg-canvas/85 backdrop-blur">
+      <div className="mx-auto flex max-w-3xl flex-wrap items-center gap-3 px-6 py-4">{children}</div>
     </div>
   );
 }

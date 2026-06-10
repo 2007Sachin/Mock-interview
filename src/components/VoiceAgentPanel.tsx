@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { useVoiceAgent } from '@/hooks/useVoiceAgent';
+import { InterviewerAvatar, type InterviewerState } from '@/components/InterviewerAvatar';
 import {
+  ControlBar,
   ErrorNotice,
-  PresenceRow,
   QuestionCard,
   TranscriptCard,
   buttonStyles,
-  type StatusVariant,
 } from '@/components/VoiceCallUI';
+import { INTERVIEWER_NAME } from '@/lib/interviewer';
 
 export function VoiceAgentPanel({
   question,
@@ -28,25 +29,13 @@ export function VoiceAgentPanel({
   const voice = useVoiceAgent({ question, onSubmit });
   const isBusy = voice.isProcessing || isSubmittingTyped;
 
-  const statusLabel = voice.isSpeaking
-    ? 'AI speaking'
-    : voice.isProcessing
-      ? 'Processing…'
+  const avatarState: InterviewerState = voice.isSpeaking
+    ? 'speaking'
+    : isBusy
+      ? 'thinking'
       : voice.isListening
-        ? 'Listening'
-        : voice.isMuted
-          ? 'Mic muted'
-          : 'Ready';
-
-  const statusVariant: StatusVariant = voice.isSpeaking
-    ? 'info'
-    : voice.isProcessing
-      ? 'warning'
-      : voice.isListening
-        ? 'accent'
-        : voice.isMuted
-          ? 'danger'
-          : 'neutral';
+        ? 'listening'
+        : 'idle';
 
   const hasAnswer = Boolean(voice.transcript.trim() || voice.interimTranscript.trim());
 
@@ -66,15 +55,16 @@ export function VoiceAgentPanel({
   };
 
   return (
-    <div className="space-y-4">
-      <PresenceRow
-        botSpeaking={voice.isSpeaking}
-        botThinking={voice.isProcessing}
-        userSpeaking={voice.isListening && Boolean(voice.interimTranscript)}
-        isMuted={voice.isMuted}
-        statusLabel={statusLabel}
-        statusVariant={statusVariant}
-      />
+    <div className="space-y-5">
+      {/* Interviewer — the focal point */}
+      <div className="flex justify-center pt-2">
+        <InterviewerAvatar
+          state={avatarState}
+          name={INTERVIEWER_NAME}
+          activity={Boolean(voice.interimTranscript)}
+          statusOverride={voice.isMuted && avatarState === 'idle' ? 'Mic muted' : undefined}
+        />
+      </div>
 
       <QuestionCard text={question} />
 
@@ -83,57 +73,6 @@ export function VoiceAgentPanel({
         finalText={voice.transcript}
         userSpeaking={voice.isListening && Boolean(voice.interimTranscript)}
       />
-
-      {/* Primary controls — always visible */}
-      <div className="flex flex-wrap items-center gap-3">
-        <button
-          type="button"
-          onClick={voice.speakQuestion}
-          disabled={voice.isSpeaking || voice.isProcessing}
-          className={buttonStyles.secondary}
-          aria-label="Repeat the current question"
-        >
-          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-            <path d="M1 4v6h6M23 20v-6h-6" />
-            <path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
-          </svg>
-          Repeat
-        </button>
-
-        <button
-          type="button"
-          onClick={voice.toggleMute}
-          className={voice.isMuted ? buttonStyles.mutedActive : buttonStyles.secondary}
-          aria-label={voice.isMuted ? 'Unmute microphone' : 'Mute microphone'}
-          aria-pressed={voice.isMuted}
-        >
-          {voice.isMuted ? 'Unmute' : 'Mute'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            void voice.submitAnswer();
-          }}
-          disabled={!hasAnswer || voice.isProcessing}
-          className={`flex-1 ${buttonStyles.primary}`}
-          aria-label="Finish this answer and move to the next question"
-        >
-          {voice.isProcessing ? 'Submitting…' : 'Done — Next question →'}
-        </button>
-
-        <button
-          type="button"
-          onClick={() => {
-            void onEndInterview();
-          }}
-          disabled={isEndingInterview}
-          className={buttonStyles.danger}
-          aria-label="End the interview and generate your report"
-        >
-          {isEndingInterview ? 'Ending…' : 'End interview'}
-        </button>
-      </div>
 
       {!voice.speechRecognitionSupported && (
         <ErrorNotice>
@@ -185,6 +124,57 @@ export function VoiceAgentPanel({
           </div>
         )}
       </div>
+
+      {/* Call toolbar */}
+      <ControlBar>
+        <button
+          type="button"
+          onClick={voice.speakQuestion}
+          disabled={voice.isSpeaking || isBusy}
+          className={buttonStyles.secondary}
+          aria-label="Repeat the current question"
+        >
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+            <path d="M1 4v6h6M23 20v-6h-6" />
+            <path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
+          </svg>
+          Repeat
+        </button>
+
+        <button
+          type="button"
+          onClick={voice.toggleMute}
+          className={voice.isMuted ? buttonStyles.mutedActive : buttonStyles.secondary}
+          aria-label={voice.isMuted ? 'Unmute microphone' : 'Mute microphone'}
+          aria-pressed={voice.isMuted}
+        >
+          {voice.isMuted ? 'Unmute' : 'Mute'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            void voice.submitAnswer();
+          }}
+          disabled={!hasAnswer || isBusy}
+          className={`flex-1 ${buttonStyles.primary}`}
+          aria-label="Finish this answer and move to the next question"
+        >
+          {voice.isProcessing ? 'Submitting…' : 'Done — Next question →'}
+        </button>
+
+        <button
+          type="button"
+          onClick={() => {
+            void onEndInterview();
+          }}
+          disabled={isEndingInterview}
+          className={buttonStyles.danger}
+          aria-label="End the interview and generate your report"
+        >
+          {isEndingInterview ? 'Ending…' : 'End interview'}
+        </button>
+      </ControlBar>
     </div>
   );
 }

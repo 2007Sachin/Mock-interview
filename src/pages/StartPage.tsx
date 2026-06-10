@@ -238,7 +238,7 @@ export function StartPage() {
       setLoadingLabel('Starting session…');
       const verified = await verifyInterviewSession(brief.sessionId, brief.accessCode);
       sessionStorage.setItem(formatSessionStorageKey(brief.sessionId), verified.sessionToken);
-      navigate(`/interview/${brief.sessionId}/room`);
+      navigate(`/interview/${brief.sessionId}/briefing`);
     } catch (err) {
       setError(err instanceof Error ? err.message : 'Failed to create interview. Please try again.');
     } finally {

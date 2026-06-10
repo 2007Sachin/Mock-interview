@@ -16,7 +16,7 @@ export function AccessCodePage() {
       setErrorMessage(null);
       const result = await verifyInterviewSession(sessionId, accessCode);
       sessionStorage.setItem(formatSessionStorageKey(sessionId), result.sessionToken);
-      navigate(`/interview/${sessionId}/room`);
+      navigate(`/interview/${sessionId}/briefing`);
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unable to verify access code.';
       setErrorMessage(message);

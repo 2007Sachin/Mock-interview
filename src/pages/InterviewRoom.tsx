@@ -1,14 +1,22 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { InterviewOnboarding } from '@/components/InterviewOnboarding';
+import { InterviewerAvatar } from '@/components/InterviewerAvatar';
+import { MeetInterviewer } from '@/components/MeetInterviewer';
 import { PipecatVoicePanel } from '@/components/PipecatVoicePanel';
 import { VoiceAgentPanel } from '@/components/VoiceAgentPanel';
 import { ErrorNotice, QuestionProgress } from '@/components/VoiceCallUI';
 import { env } from '@/lib/env';
+import { INTERVIEWER_NAME, buildClosingLine } from '@/lib/interviewer';
 import { completeInterview, getNextQuestion, submitInterviewAnswer } from '@/lib/mockInterviewApi';
 import { formatSessionStorageKey } from '@/lib/signature';
+import { speakLine } from '@/lib/speakLine';
 import { useInterviewSession } from '@/hooks/useInterviewSession';
-import { INTERVIEW_STAGES } from '@/lib/stageEngine';
+import { INTERVIEW_STAGES, countStageQuestions } from '@/lib/stageEngine';
+
+type RoomPhase = 'device-check' | 'meet' | 'live' | 'wrap-up';
+
+const WRAP_UP_MIN_MS = 2000;
 
 function RoomHeader({ roleTitle, company }: { roleTitle: string | undefined; company: string | undefined }) {
   return (
@@ -25,7 +33,8 @@ export function InterviewRoom() {
   const navigate = useNavigate();
   const sessionToken = sessionStorage.getItem(formatSessionStorageKey(sessionId));
   const { context } = useInterviewSession(sessionId, sessionToken);
-  const [onboardingComplete, setOnboardingComplete] = useState(false);
+  const [phase, setPhase] = useState<RoomPhase>('device-check');
+  const [closingLineSpeaking, setClosingLineSpeaking] = useState(false);
   const [currentStageIndex, setCurrentStageIndex] = useState(0);
   const [currentQuestion, setCurrentQuestion] = useState('');
   const [stageAnswers, setStageAnswers] = useState<Record<string, string[]>>({});
@@ -41,26 +50,22 @@ export function InterviewRoom() {
 
   // Question total comes from the brief's questionBank when one exists for the
   // session; otherwise fall back to the stage-engine question counts.
-  const totalQuestions = useMemo(() => {
-    if (context.data?.totalQuestions) {
-      return context.data.totalQuestions;
-    }
-
-    const stages = context.data?.stages ?? [];
-    const total = stages.reduce((sum, stageId) => {
-      const stage = INTERVIEW_STAGES.find((item) => item.id === stageId);
-      return sum + (stage?.questionCount ?? 0);
-    }, 0);
-    return total || 8;
-  }, [context.data?.totalQuestions, context.data?.stages]);
+  const totalQuestions = useMemo(
+    () => context.data?.totalQuestions ?? countStageQuestions(context.data?.stages ?? []),
+    [context.data?.totalQuestions, context.data?.stages],
+  );
 
   const currentQuestionNumber = useMemo(
     () => Object.values(stageAnswers).reduce((sum, answers) => sum + answers.length, 0) + 1,
     [stageAnswers],
   );
 
+  // Prefetch starts during the "meet" step so the first question is ready the
+  // moment the student clicks Start interview.
+  const shouldLoadQuestions = phase === 'meet' || phase === 'live';
+
   useEffect(() => {
-    if (!onboardingComplete || !sessionId || !sessionToken || !currentStage) return;
+    if (!shouldLoadQuestions || !sessionId || !sessionToken || !currentStage) return;
 
     const requestId = latestQuestionRequestRef.current + 1;
     latestQuestionRequestRef.current = requestId;
@@ -83,7 +88,27 @@ export function InterviewRoom() {
     return () => {
       cancelled = true;
     };
-  }, [onboardingComplete, sessionId, sessionToken, currentStage, stageAnswers]);
+  }, [shouldLoadQuestions, sessionId, sessionToken, currentStage, stageAnswers]);
+
+  const finalizeInterview = async () => {
+    if (!sessionToken) return;
+    setPhase('wrap-up');
+
+    // Report generation starts immediately; the closing line plays
+    // concurrently and never delays it.
+    const reportPromise = completeInterview(sessionId, sessionToken);
+    setClosingLineSpeaking(true);
+    void speakLine(buildClosingLine()).finally(() => setClosingLineSpeaking(false));
+    const minimumTransition = new Promise((resolve) => setTimeout(resolve, WRAP_UP_MIN_MS));
+
+    try {
+      const [report] = await Promise.all([reportPromise, minimumTransition]);
+      navigate(`/interview/${sessionId}/report`, { state: { report } });
+    } catch (error) {
+      setPhase('live');
+      throw error;
+    }
+  };
 
   const handleSubmitAnswer = async (transcript: string) => {
     if (!sessionToken || isSubmittingAnswer) return;
@@ -127,14 +152,8 @@ export function InterviewRoom() {
     }
   };
 
-  const finalizeInterview = async () => {
-    if (!sessionToken) return;
-    const report = await completeInterview(sessionId, sessionToken);
-    navigate(`/interview/${sessionId}/report`, { state: { report } });
-  };
-
   const handleEndInterview = async () => {
-    if (isEndingInterview) return;
+    if (isEndingInterview || phase === 'wrap-up') return;
     setIsEndingInterview(true);
     try {
       await finalizeInterview();
@@ -153,19 +172,47 @@ export function InterviewRoom() {
     );
   }
 
-  if (!onboardingComplete) {
+  if (phase === 'device-check') {
     return (
       <div className="min-h-screen">
         <div className="mx-auto max-w-5xl px-6 py-8">
           <RoomHeader roleTitle={context.data?.roleTitle} company={context.data?.company} />
         </div>
-        <InterviewOnboarding onComplete={() => setOnboardingComplete(true)} />
+        <InterviewOnboarding onComplete={() => setPhase('meet')} />
+      </div>
+    );
+  }
+
+  if (phase === 'meet') {
+    return (
+      <div className="mx-auto min-h-screen max-w-3xl px-6 py-10">
+        <RoomHeader roleTitle={context.data?.roleTitle} company={context.data?.company} />
+        <MeetInterviewer topic={context.data?.roleTitle ?? ''} onStart={() => setPhase('live')} />
+      </div>
+    );
+  }
+
+  if (phase === 'wrap-up') {
+    return (
+      <div className="mx-auto flex min-h-screen max-w-xl flex-col items-center justify-center gap-8 px-6 text-center">
+        <InterviewerAvatar
+          state={closingLineSpeaking ? 'speaking' : 'thinking'}
+          name={INTERVIEWER_NAME}
+          size="lg"
+          statusOverride={closingLineSpeaking ? undefined : 'Preparing your report…'}
+        />
+        <div className="space-y-2">
+          <h2 className="text-2xl font-bold text-ink">That's a wrap!</h2>
+          <p className="text-sm leading-relaxed text-ink-secondary">
+            {INTERVIEWER_NAME} is scoring your answers. Your report will open automatically.
+          </p>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="mx-auto min-h-screen max-w-3xl space-y-6 px-6 py-10">
+    <div className="mx-auto min-h-screen max-w-3xl space-y-6 px-6 pb-28 pt-10">
       <RoomHeader roleTitle={context.data?.roleTitle} company={context.data?.company} />
 
       <QuestionProgress current={currentQuestionNumber} total={totalQuestions} />

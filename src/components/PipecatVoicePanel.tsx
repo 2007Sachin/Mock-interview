@@ -1,13 +1,14 @@
 import { useState } from 'react';
 import { usePipecatInterview } from '@/hooks/usePipecatInterview';
+import { InterviewerAvatar, type InterviewerState } from '@/components/InterviewerAvatar';
 import {
+  ControlBar,
   ErrorNotice,
-  PresenceRow,
   QuestionCard,
   TranscriptCard,
   buttonStyles,
-  type StatusVariant,
 } from '@/components/VoiceCallUI';
+import { INTERVIEWER_NAME } from '@/lib/interviewer';
 
 export function PipecatVoicePanel({
   sessionId,
@@ -38,27 +39,21 @@ export function PipecatVoicePanel({
 
   const isConnected = voice.connectionStatus === 'connected';
 
-  const statusLabel = !isConnected
+  const avatarState: InterviewerState = voice.botSpeaking
+    ? 'speaking'
+    : voice.botThinking || isSubmitting
+      ? 'thinking'
+      : isConnected
+        ? 'listening'
+        : 'idle';
+
+  const avatarStatusOverride = !isConnected
     ? voice.connectionStatus === 'idle'
       ? 'Ready to start'
       : 'Connecting…'
-    : voice.botSpeaking
-      ? 'AI speaking'
-      : voice.botThinking || isSubmitting
-        ? 'Processing…'
-        : voice.isMuted
-          ? 'Mic muted'
-          : 'Listening';
-
-  const statusVariant: StatusVariant = !isConnected
-    ? 'neutral'
-    : voice.botSpeaking
-      ? 'info'
-      : voice.botThinking || isSubmitting
-        ? 'warning'
-        : voice.isMuted
-          ? 'danger'
-          : 'accent';
+    : voice.isMuted && avatarState === 'listening'
+      ? 'Mic muted'
+      : undefined;
 
   const hasAnswer = Boolean(voice.finalTranscript.trim());
 
@@ -74,15 +69,16 @@ export function PipecatVoicePanel({
   };
 
   return (
-    <div className="space-y-4">
-      <PresenceRow
-        botSpeaking={voice.botSpeaking}
-        botThinking={voice.botThinking}
-        userSpeaking={voice.userSpeaking}
-        isMuted={voice.isMuted}
-        statusLabel={statusLabel}
-        statusVariant={statusVariant}
-      />
+    <div className="space-y-5">
+      {/* Interviewer — the focal point */}
+      <div className="flex justify-center pt-2">
+        <InterviewerAvatar
+          state={avatarState}
+          name={INTERVIEWER_NAME}
+          activity={Boolean(voice.interimTranscript) || voice.userSpeaking}
+          statusOverride={avatarStatusOverride}
+        />
+      </div>
 
       <QuestionCard text={voice.assistantTranscript || currentQuestion} />
 
@@ -92,57 +88,7 @@ export function PipecatVoicePanel({
         userSpeaking={voice.userSpeaking}
       />
 
-      {/* Primary controls — always visible once connected */}
-      {isConnected ? (
-        <div className="flex flex-wrap items-center gap-3">
-          <button
-            type="button"
-            onClick={voice.repeatQuestion}
-            className={buttonStyles.secondary}
-            aria-label="Repeat the current question"
-          >
-            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
-              <path d="M1 4v6h6M23 20v-6h-6" />
-              <path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
-            </svg>
-            Repeat
-          </button>
-
-          <button
-            type="button"
-            onClick={voice.toggleMute}
-            className={voice.isMuted ? buttonStyles.mutedActive : buttonStyles.secondary}
-            aria-label={voice.isMuted ? 'Unmute microphone' : 'Mute microphone'}
-            aria-pressed={voice.isMuted}
-          >
-            {voice.isMuted ? 'Unmute' : 'Mute'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              void submitAnswer(voice.finalTranscript);
-            }}
-            disabled={!hasAnswer || isSubmitting}
-            className={`flex-1 ${buttonStyles.primary}`}
-            aria-label="Finish this answer and move to the next question"
-          >
-            {isSubmitting ? 'Submitting…' : 'Done — Next question →'}
-          </button>
-
-          <button
-            type="button"
-            onClick={() => {
-              void onEndInterview();
-            }}
-            disabled={isEndingInterview}
-            className={buttonStyles.danger}
-            aria-label="End the interview and generate your report"
-          >
-            {isEndingInterview ? 'Ending…' : 'End interview'}
-          </button>
-        </div>
-      ) : (
+      {!isConnected && (
         <button
           type="button"
           onClick={() => {
@@ -154,7 +100,7 @@ export function PipecatVoicePanel({
           {voice.kokoroLoading
             ? 'Loading audio…'
             : currentQuestion.trim()
-              ? 'Start Interview'
+              ? 'Connect voice'
               : 'Preparing first question…'}
         </button>
       )}
@@ -271,6 +217,58 @@ export function PipecatVoicePanel({
           </div>
         )}
       </div>
+
+      {/* Call toolbar */}
+      {isConnected && (
+        <ControlBar>
+          <button
+            type="button"
+            onClick={voice.repeatQuestion}
+            className={buttonStyles.secondary}
+            aria-label="Repeat the current question"
+          >
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" aria-hidden="true">
+              <path d="M1 4v6h6M23 20v-6h-6" />
+              <path d="M20.49 9A9 9 0 005.64 5.64L1 10M23 14l-4.64 4.36A9 9 0 013.51 15" />
+            </svg>
+            Repeat
+          </button>
+
+          <button
+            type="button"
+            onClick={voice.toggleMute}
+            className={voice.isMuted ? buttonStyles.mutedActive : buttonStyles.secondary}
+            aria-label={voice.isMuted ? 'Unmute microphone' : 'Mute microphone'}
+            aria-pressed={voice.isMuted}
+          >
+            {voice.isMuted ? 'Unmute' : 'Mute'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              void submitAnswer(voice.finalTranscript);
+            }}
+            disabled={!hasAnswer || isSubmitting}
+            className={`flex-1 ${buttonStyles.primary}`}
+            aria-label="Finish this answer and move to the next question"
+          >
+            {isSubmitting ? 'Submitting…' : 'Done — Next question →'}
+          </button>
+
+          <button
+            type="button"
+            onClick={() => {
+              void onEndInterview();
+            }}
+            disabled={isEndingInterview}
+            className={buttonStyles.danger}
+            aria-label="End the interview and generate your report"
+          >
+            {isEndingInterview ? 'Ending…' : 'End interview'}
+          </button>
+        </ControlBar>
+      )}
     </div>
   );
 }
