@@ -1,4 +1,4 @@
-import { InterviewAnswerRecord, InterviewBrief, InterviewMode, InterviewReportDraft, InterviewSessionRecord } from '../types.js';
+import { InterviewAnswerRecord, InterviewBrief, InterviewMode, InterviewReportDraft, InterviewSessionRecord, QuestionEvaluation } from '../types.js';
 
 export class ScoringService {
   score(
@@ -62,6 +62,7 @@ function scoreResume(
       'Strengthen depth in role-specific problem solving',
     ],
     stageScores,
+    questionEvaluations: buildQuestionEvaluations(answers, { communicationScore, technicalScore, behavioralScore, jdAlignmentScore }),
   };
 }
 
@@ -105,6 +106,7 @@ function scoreCapstone(
       'Deepen reflection on what you would change with hindsight',
     ],
     stageScores,
+    questionEvaluations: buildQuestionEvaluations(answers, { communicationScore, technicalScore, behavioralScore, jdAlignmentScore }),
   };
 }
 
@@ -148,6 +150,7 @@ function scoreSkill(
       'Strengthen discussion of advanced or nuanced trade-offs',
     ],
     stageScores,
+    questionEvaluations: buildQuestionEvaluations(answers, { communicationScore, technicalScore, behavioralScore, jdAlignmentScore }),
   };
 }
 
@@ -241,6 +244,36 @@ function qualityLabel(score: number): string {
   if (score >= 65) return 'solid';
   if (score >= 50) return 'developing';
   return 'emerging';
+}
+
+function buildQuestionEvaluations(
+  answers: InterviewAnswerRecord[],
+  scores: { communicationScore: number; technicalScore: number; behavioralScore: number; jdAlignmentScore: number },
+): QuestionEvaluation[] {
+  return answers.map((answer) => {
+    const words = answer.answerTranscript.trim().split(/\s+/).filter(Boolean);
+    const wordCount = words.length;
+    const answerScore = clamp(
+      scores.communicationScore * 0.4 + scores.technicalScore * 0.3 +
+      scores.behavioralScore * 0.15 + scores.jdAlignmentScore * 0.15 +
+      (wordCount > 60 ? 5 : wordCount < 20 ? -10 : 0),
+    );
+    const summary = words.length > 25
+      ? words.slice(0, 25).join(' ') + '…'
+      : answer.answerTranscript.trim() || 'No response recorded.';
+    const isStrong = answerScore >= 75;
+    return {
+      question: answer.question,
+      answerSummary: summary,
+      score: answerScore,
+      feedback: isStrong
+        ? 'The response showed clear understanding with relevant examples.'
+        : 'The response addressed the question but lacked depth or specific examples.',
+      improvement: isStrong
+        ? 'To strengthen further, quantify impact with metrics or describe trade-offs you considered.'
+        : 'Structure your answer using a clear example: situation → your action → the measurable result.',
+    };
+  });
 }
 
 function topArea(focusAreas: string[], answers: InterviewAnswerRecord[]): string {

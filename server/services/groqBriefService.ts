@@ -1,6 +1,6 @@
 import { InterviewBrief, InterviewMode } from '../types.js';
 
-const MISTRAL_CHAT_COMPLETIONS_URL = 'https://api.mistral.ai/v1/chat/completions';
+const GROQ_CHAT_COMPLETIONS_URL = 'https://api.groq.com/openai/v1/chat/completions';
 const TEXT_CONTEXT_LIMIT = 6_000;
 const QUESTION_BANK_SIZE = 8;
 
@@ -23,7 +23,7 @@ export interface BriefGenerator {
   generate(input: BriefGeneratorInput): Promise<InterviewBrief>;
 }
 
-type MistralBriefServiceConfig = {
+type GroqBriefServiceConfig = {
   provider?: string;
   apiKey?: string;
   model?: string;
@@ -34,17 +34,17 @@ type MistralBriefServiceConfig = {
   fetch?: FetchLike;
 };
 
-export class MistralBriefServiceError extends Error {
+export class GroqBriefServiceError extends Error {
   constructor(
     public readonly code: 'disabled' | 'timeout' | 'provider' | 'validation',
     message: string,
   ) {
     super(message);
-    this.name = 'MistralBriefServiceError';
+    this.name = 'GroqBriefServiceError';
   }
 }
 
-export class MistralBriefService implements BriefGenerator {
+export class GroqBriefService implements BriefGenerator {
   private readonly provider: string;
   private readonly apiKey: string;
   private readonly model: string;
@@ -54,24 +54,24 @@ export class MistralBriefService implements BriefGenerator {
   private readonly retryCount: number;
   private readonly fetchImplementation: FetchLike;
 
-  constructor(config: MistralBriefServiceConfig = {}) {
+  constructor(config: GroqBriefServiceConfig = {}) {
     this.provider = normalizeProvider(config.provider ?? process.env.LLM_PROVIDER);
-    this.apiKey = (config.apiKey ?? process.env.MISTRAL_API_KEY ?? '').trim();
-    this.model = (config.model ?? process.env.MISTRAL_LLM_MODEL ?? 'mistral-small-latest').trim();
-    this.temperature = normalizeNumber(config.temperature, process.env.MISTRAL_TEMPERATURE, 0.3);
-    this.maxTokens = normalizeInteger(config.maxTokens, process.env.MISTRAL_MAX_TOKENS, 1200);
-    this.timeoutMs = normalizeInteger(config.timeoutMs, process.env.MISTRAL_TIMEOUT_MS, 15_000);
-    this.retryCount = Math.max(0, normalizeInteger(config.retryCount, process.env.MISTRAL_RETRY_COUNT, 1));
+    this.apiKey = (config.apiKey ?? process.env.GROQ_API_KEY ?? '').trim();
+    this.model = (config.model ?? process.env.GROQ_MODEL ?? 'llama-3.1-8b-instant').trim();
+    this.temperature = normalizeNumber(config.temperature, process.env.GROQ_TEMPERATURE, 0.3);
+    this.maxTokens = normalizeInteger(config.maxTokens, process.env.GROQ_MAX_TOKENS, 1200);
+    this.timeoutMs = normalizeInteger(config.timeoutMs, process.env.GROQ_TIMEOUT_MS, 15_000);
+    this.retryCount = Math.max(0, normalizeInteger(config.retryCount, process.env.GROQ_RETRY_COUNT, 1));
     this.fetchImplementation = config.fetch ?? globalThis.fetch.bind(globalThis);
   }
 
   async generate(input: BriefGeneratorInput): Promise<InterviewBrief> {
-    if (this.provider !== 'mistral' || !this.apiKey) {
-      throw new MistralBriefServiceError('disabled', 'Brief LLM generation is not configured.');
+    if (this.provider !== 'groq' || !this.apiKey) {
+      throw new GroqBriefServiceError('disabled', 'Brief LLM generation is not configured.');
     }
 
     let attempt = 0;
-    let lastError: MistralBriefServiceError | null = null;
+    let lastError: GroqBriefServiceError | null = null;
     while (attempt <= this.retryCount) {
       try {
         return await this.generateOnce(input);
@@ -85,7 +85,7 @@ export class MistralBriefService implements BriefGenerator {
       }
     }
 
-    throw lastError ?? new MistralBriefServiceError('provider', 'Brief LLM generation failed.');
+    throw lastError ?? new GroqBriefServiceError('provider', 'Brief LLM generation failed.');
   }
 
   private async generateOnce(input: BriefGeneratorInput): Promise<InterviewBrief> {
@@ -93,7 +93,7 @@ export class MistralBriefService implements BriefGenerator {
     const timeout = setTimeout(() => controller.abort(), this.timeoutMs);
 
     try {
-      const response = await this.fetchImplementation(MISTRAL_CHAT_COMPLETIONS_URL, {
+      const response = await this.fetchImplementation(GROQ_CHAT_COMPLETIONS_URL, {
         method: 'POST',
         headers: {
           authorization: `Bearer ${this.apiKey}`,
@@ -110,13 +110,13 @@ export class MistralBriefService implements BriefGenerator {
       });
 
       if (!response.ok) {
-        throw new MistralBriefServiceError('provider', 'Brief LLM generation failed.');
+        throw new GroqBriefServiceError('provider', 'Brief LLM generation failed.');
       }
 
       const payload = await response.json() as Record<string, unknown>;
       const content = extractMessageContent(payload);
       if (!content) {
-        throw new MistralBriefServiceError('validation', 'Brief LLM payload was empty.');
+        throw new GroqBriefServiceError('validation', 'Brief LLM payload was empty.');
       }
 
       return normalizeInterviewBrief(parseJsonObject(content));
@@ -185,13 +185,9 @@ function extractMessageContent(payload: Record<string, unknown>): string {
   const message = isRecord(firstChoice) && isRecord(firstChoice.message) ? firstChoice.message : null;
   const content = message?.content;
 
-  if (typeof content === 'string') {
-    return content;
-  }
+  if (typeof content === 'string') return content;
 
-  if (!Array.isArray(content)) {
-    return '';
-  }
+  if (!Array.isArray(content)) return '';
 
   return content
     .map((item) => (isRecord(item) && typeof item.text === 'string' ? item.text : ''))
@@ -202,12 +198,10 @@ function extractMessageContent(payload: Record<string, unknown>): string {
 function parseJsonObject(value: string): Record<string, unknown> {
   try {
     const parsed = JSON.parse(value);
-    if (!isRecord(parsed)) {
-      throw new Error('Expected JSON object.');
-    }
+    if (!isRecord(parsed)) throw new Error('Expected JSON object.');
     return parsed;
   } catch {
-    throw new MistralBriefServiceError('validation', 'Brief LLM payload was not valid JSON.');
+    throw new GroqBriefServiceError('validation', 'Brief LLM payload was not valid JSON.');
   }
 }
 
@@ -224,7 +218,7 @@ function normalizeInterviewBrief(payload: Record<string, unknown>): InterviewBri
 function normalizeQuestionBank(value: unknown): string[] {
   const questions = normalizeStringArray(value, 'questionBank');
   if (questions.length < QUESTION_BANK_SIZE) {
-    throw new MistralBriefServiceError(
+    throw new GroqBriefServiceError(
       'validation',
       `questionBank must contain at least ${QUESTION_BANK_SIZE} questions, got ${questions.length}.`,
     );
@@ -234,11 +228,11 @@ function normalizeQuestionBank(value: unknown): string[] {
 
 function normalizeRubric(value: unknown): Array<{ id: string; name: string }> {
   if (!Array.isArray(value) || value.length === 0) {
-    throw new MistralBriefServiceError('validation', 'rubric must be a non-empty array.');
+    throw new GroqBriefServiceError('validation', 'rubric must be a non-empty array.');
   }
   return value.map((item, index) => {
     if (!isRecord(item)) {
-      throw new MistralBriefServiceError('validation', `rubric[${index}] must be an object.`);
+      throw new GroqBriefServiceError('validation', `rubric[${index}] must be an object.`);
     }
     return {
       id: normalizeRequiredString(item.id, `rubric[${index}].id`),
@@ -249,7 +243,7 @@ function normalizeRubric(value: unknown): Array<{ id: string; name: string }> {
 
 function normalizeStringArray(value: unknown, fieldName: string): string[] {
   if (!Array.isArray(value)) {
-    throw new MistralBriefServiceError('validation', `${fieldName} must be a string array.`);
+    throw new GroqBriefServiceError('validation', `${fieldName} must be a string array.`);
   }
   const normalized = Array.from(new Set(
     value
@@ -258,34 +252,30 @@ function normalizeStringArray(value: unknown, fieldName: string): string[] {
       .filter(Boolean),
   ));
   if (normalized.length === 0) {
-    throw new MistralBriefServiceError('validation', `${fieldName} must not be empty.`);
+    throw new GroqBriefServiceError('validation', `${fieldName} must not be empty.`);
   }
   return normalized;
 }
 
 function normalizeRequiredString(value: unknown, fieldName: string): string {
   if (typeof value !== 'string' || !value.trim()) {
-    throw new MistralBriefServiceError('validation', `${fieldName} must be a non-empty string.`);
+    throw new GroqBriefServiceError('validation', `${fieldName} must be a non-empty string.`);
   }
   return value.trim();
 }
 
 function summarizeContext(value: string, limit: number): string {
   const normalized = value.replace(/\s+/g, ' ').trim();
-  if (normalized.length <= limit) {
-    return normalized;
-  }
+  if (normalized.length <= limit) return normalized;
   return `${normalized.slice(0, Math.max(0, limit - 1)).trimEnd()}...`;
 }
 
 function normalizeProvider(value: string | undefined): string {
-  return value?.trim().toLowerCase() === 'mistral' ? 'mistral' : 'mock';
+  return value?.trim().toLowerCase() === 'groq' ? 'groq' : 'mock';
 }
 
 function normalizeNumber(overrideValue: number | undefined, envValue: string | undefined, fallback: number): number {
-  if (overrideValue !== undefined && Number.isFinite(overrideValue)) {
-    return overrideValue;
-  }
+  if (overrideValue !== undefined && Number.isFinite(overrideValue)) return overrideValue;
   const parsed = envValue == null ? Number.NaN : Number(envValue);
   return Number.isFinite(parsed) ? parsed : fallback;
 }
@@ -294,14 +284,12 @@ function normalizeInteger(overrideValue: number | undefined, envValue: string | 
   return Math.round(normalizeNumber(overrideValue, envValue, fallback));
 }
 
-function normalizeServiceError(error: unknown): MistralBriefServiceError {
-  if (error instanceof MistralBriefServiceError) {
-    return error;
-  }
+function normalizeServiceError(error: unknown): GroqBriefServiceError {
+  if (error instanceof GroqBriefServiceError) return error;
   if (error instanceof Error && error.name === 'AbortError') {
-    return new MistralBriefServiceError('timeout', 'Brief LLM generation timed out.');
+    return new GroqBriefServiceError('timeout', 'Brief LLM generation timed out.');
   }
-  return new MistralBriefServiceError('provider', 'Brief LLM generation failed.');
+  return new GroqBriefServiceError('provider', 'Brief LLM generation failed.');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

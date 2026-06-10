@@ -8,7 +8,7 @@ _QUESTION_BANK_HINT_COUNT = 4
 _PRIOR_TURN_WINDOW = 6
 
 
-def build_mistral_messages(
+def build_chat_messages(
     *,
     context: InternalVoiceContext,
     stage: str,

@@ -9,7 +9,7 @@ import {
   InterviewSessionRecord,
 } from '../types.js';
 import { TokenService } from './tokenService.js';
-import { BriefGenerator, BriefGeneratorInput } from './mistralBriefService.js';
+import { BriefGenerator, BriefGeneratorInput } from './groqBriefService.js';
 
 const require = createRequire(import.meta.url);
 type PdfParseFn = (buffer: Buffer) => Promise<{ text: string; numpages: number }>;
@@ -143,7 +143,7 @@ export class InterviewBriefService {
   }
 
   private async generateBrief(input: BriefGeneratorInput): Promise<InterviewBrief> {
-    if (!this.shouldUseMistral() || !this.briefGenerator) {
+    if (!this.shouldUseGroq() || !this.briefGenerator) {
       return generateMockBrief(input);
     }
 
@@ -202,10 +202,10 @@ export class InterviewBriefService {
     return { sessionId, accessCode, expiresAt };
   }
 
-  private shouldUseMistral(): boolean {
+  private shouldUseGroq(): boolean {
     const provider = (process.env.LLM_PROVIDER ?? 'mock').trim().toLowerCase();
-    const apiKey = process.env.MISTRAL_API_KEY?.trim();
-    return provider === 'mistral' && Boolean(apiKey);
+    const apiKey = process.env.GROQ_API_KEY?.trim();
+    return provider === 'groq' && Boolean(apiKey);
   }
 }
 

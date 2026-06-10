@@ -8,7 +8,7 @@ from fastapi import WebSocket
 from app.career_ops.client import InternalVoiceContext, NodeClientError, NodeInterviewSessionClient
 from app.core.config import settings
 from app.core.observability import log_event
-from app.interview.orchestrator import AssistantTurn, MistralInterviewOrchestrator, OrchestratorInput
+from app.interview.orchestrator import AssistantTurn, GroqInterviewOrchestrator, OrchestratorInput
 from app.realtime.events import (
     AssistantTextEvent,
     build_assistant_text_event,
@@ -53,7 +53,7 @@ class DailyTransportRuntime:
 class WebsocketPipelineRuntime:
     def __init__(self) -> None:
         self._node_client = NodeInterviewSessionClient()
-        self._orchestrator = MistralInterviewOrchestrator()
+        self._orchestrator = GroqInterviewOrchestrator()
         self._transcript_adapter = BrowserTranscriptSTTAdapter()
         self._sessions: dict[str, SessionConversationState] = {}
         self._locks: dict[str, asyncio.Lock] = {}

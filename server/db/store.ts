@@ -9,6 +9,7 @@ import {
   InterviewSessionRecord,
   InterviewTranscriptEventRecord,
   InterviewTurnRecord,
+  QuestionEvaluation,
 } from '../types.js';
 
 type DatabaseShape = {
@@ -53,18 +54,40 @@ export interface SessionStore {
 }
 
 export function createSessionStore(args: {
+  storageBackend?: string;
   databaseUrl?: string;
+  supabaseDatabaseUrl?: string;
   filePath: string;
 }): SessionStore {
+  const backend = (args.storageBackend ?? '').toLowerCase().trim();
+
+  if (backend === 'supabase') {
+    const url = args.supabaseDatabaseUrl ?? args.databaseUrl;
+    if (!url) {
+      throw new Error(
+        'SUPABASE_DATABASE_URL (or DATABASE_URL) is required when STORAGE_BACKEND=supabase. ' +
+        'Set it to your Supabase Transaction Pooler URL from the Supabase dashboard.',
+      );
+    }
+    console.info('[pathwisse-mockinterview] Using Supabase (postgres) storage backend.');
+    return new PostgresStore(url);
+  }
+
   if (args.databaseUrl) {
+    console.info('[pathwisse-mockinterview] Using Postgres storage backend.');
     return new PostgresStore(args.databaseUrl);
   }
 
   console.warn(
-    '[pathwisse-mockinterview] DATABASE_URL is missing. Falling back to the file-backed store for local development only.',
+    '[pathwisse-mockinterview] STORAGE_BACKEND and DATABASE_URL are not set. ' +
+    'Using file-backed store — local development only.',
   );
   return new FileStore(args.filePath);
 }
+
+// ---------------------------------------------------------------------------
+// File-backed store (local dev only)
+// ---------------------------------------------------------------------------
 
 class FileStore implements SessionStore {
   constructor(private readonly filePath: string) {}
@@ -108,11 +131,7 @@ class FileStore implements SessionStore {
 
   async insertAnswer(answer: Omit<InterviewAnswerRecord, 'id' | 'createdAt'>): Promise<void> {
     const db = await this.load();
-    db.answers.push({
-      ...answer,
-      id: randomUUID(),
-      createdAt: new Date().toISOString(),
-    });
+    db.answers.push({ ...answer, id: randomUUID(), createdAt: new Date().toISOString() });
     await this.save(db);
   }
 
@@ -129,13 +148,11 @@ class FileStore implements SessionStore {
       createdAt: existingIndex >= 0 ? db.reports[existingIndex].createdAt : new Date().toISOString(),
       ...report,
     };
-
     if (existingIndex >= 0) {
       db.reports[existingIndex] = nextReport;
     } else {
       db.reports.push(nextReport);
     }
-
     await this.save(db);
     return nextReport;
   }
@@ -152,13 +169,11 @@ class FileStore implements SessionStore {
     const existing = db.transcriptEvents.find((item) => item.eventId === event.eventId);
     const nextEvent: InterviewTranscriptEventRecord = {
       id: existing?.id ?? event.id ?? randomUUID(),
-      createdAt:
-        existing?.createdAt ?? event.createdAt ?? new Date().toISOString(),
+      createdAt: existing?.createdAt ?? event.createdAt ?? new Date().toISOString(),
       ...event,
     };
     db.transcriptEvents = db.transcriptEvents.filter((item) => item.eventId !== event.eventId);
     db.transcriptEvents.push(nextEvent);
-
     await this.save(db);
     return nextEvent;
   }
@@ -170,29 +185,23 @@ class FileStore implements SessionStore {
     const existing = db.turns.find((item) => item.turnId === turn.turnId);
     const nextTurn: InterviewTurnRecord = {
       id: existing?.id ?? turn.id ?? randomUUID(),
-      createdAt:
-        existing?.createdAt ?? turn.createdAt ?? new Date().toISOString(),
+      createdAt: existing?.createdAt ?? turn.createdAt ?? new Date().toISOString(),
       ...turn,
     };
     db.turns = db.turns.filter((item) => item.turnId !== turn.turnId);
     db.turns.push(nextTurn);
-
     await this.save(db);
     return nextTurn;
   }
 
   async listTranscriptEvents(sessionId: string): Promise<InterviewTranscriptEventRecord[]> {
     const db = await this.load();
-    return db.transcriptEvents
-      .filter((item) => item.sessionId === sessionId)
-      .sort(compareCreatedAtAsc);
+    return db.transcriptEvents.filter((item) => item.sessionId === sessionId).sort(compareCreatedAtAsc);
   }
 
   async listTurns(sessionId: string): Promise<InterviewTurnRecord[]> {
     const db = await this.load();
-    return db.turns
-      .filter((item) => item.sessionId === sessionId)
-      .sort(compareCreatedAtAsc);
+    return db.turns.filter((item) => item.sessionId === sessionId).sort(compareCreatedAtAsc);
   }
 
   async insertInterviewBrief(brief: InterviewBriefRecord): Promise<void> {
@@ -207,6 +216,10 @@ class FileStore implements SessionStore {
   }
 }
 
+// ---------------------------------------------------------------------------
+// Postgres store (production / Supabase)
+// ---------------------------------------------------------------------------
+
 class PostgresStore implements SessionStore {
   private readonly client: Client;
   private connectPromise: Promise<void> | null = null;
@@ -214,9 +227,7 @@ class PostgresStore implements SessionStore {
   constructor(databaseUrl: string) {
     this.client = new Client({
       connectionString: normalizeConnectionString(databaseUrl),
-      ssl: shouldUseSsl(databaseUrl)
-        ? { rejectUnauthorized: false }
-        : undefined,
+      ssl: shouldUseSsl(databaseUrl) ? { rejectUnauthorized: false } : undefined,
     });
   }
 
@@ -230,22 +241,10 @@ class PostgresStore implements SessionStore {
         $1, $2, $3, $4, $5, $6, $7::jsonb, $8, $9, $10, $11, $12, $13, $14, $15, $16
       )`,
       [
-        session.id,
-        session.userId,
-        session.organizationId,
-        session.opportunityId,
-        session.accessCodeHash,
-        session.status,
-        JSON.stringify(session.payload),
-        session.callbackUrl,
-        session.sessionTokenHash,
-        session.attemptCount,
-        session.lockedUntil,
-        session.expiresAt,
-        session.errorMessage,
-        session.createdAt,
-        session.startedAt,
-        session.completedAt,
+        session.id, session.userId, session.organizationId, session.opportunityId,
+        session.accessCodeHash, session.status, JSON.stringify(session.payload), session.callbackUrl,
+        session.sessionTokenHash, session.attemptCount, session.lockedUntil, session.expiresAt,
+        session.errorMessage, session.createdAt, session.startedAt, session.completedAt,
       ],
     );
   }
@@ -256,44 +255,20 @@ class PostgresStore implements SessionStore {
   ): Promise<InterviewSessionRecord | null> {
     const current = await this.findSession(id);
     if (!current) return null;
-
     const next = updater(current);
     await this.connect();
     await this.client.query(
       `update interview_sessions
-       set user_id = $2,
-           organization_id = $3,
-           opportunity_id = $4,
-           access_code_hash = $5,
-           status = $6,
-           payload = $7::jsonb,
-           callback_url = $8,
-           session_token_hash = $9,
-           attempt_count = $10,
-           locked_until = $11,
-           expires_at = $12,
-           error_message = $13,
-           created_at = $14,
-           started_at = $15,
-           completed_at = $16
+       set user_id = $2, organization_id = $3, opportunity_id = $4, access_code_hash = $5,
+           status = $6, payload = $7::jsonb, callback_url = $8, session_token_hash = $9,
+           attempt_count = $10, locked_until = $11, expires_at = $12, error_message = $13,
+           created_at = $14, started_at = $15, completed_at = $16
        where id = $1`,
       [
-        next.id,
-        next.userId,
-        next.organizationId,
-        next.opportunityId,
-        next.accessCodeHash,
-        next.status,
-        JSON.stringify(next.payload),
-        next.callbackUrl,
-        next.sessionTokenHash,
-        next.attemptCount,
-        next.lockedUntil,
-        next.expiresAt,
-        next.errorMessage,
-        next.createdAt,
-        next.startedAt,
-        next.completedAt,
+        next.id, next.userId, next.organizationId, next.opportunityId,
+        next.accessCodeHash, next.status, JSON.stringify(next.payload), next.callbackUrl,
+        next.sessionTokenHash, next.attemptCount, next.lockedUntil, next.expiresAt,
+        next.errorMessage, next.createdAt, next.startedAt, next.completedAt,
       ],
     );
     return next;
@@ -304,31 +279,20 @@ class PostgresStore implements SessionStore {
     const result = await this.client.query(
       `select id, user_id, organization_id, opportunity_id, access_code_hash, status, payload, callback_url,
               session_token_hash, attempt_count, locked_until, expires_at, error_message, created_at, started_at, completed_at
-       from interview_sessions
-       where id = $1
-       limit 1`,
+       from interview_sessions where id = $1 limit 1`,
       [id],
     );
-
     return result.rows[0] ? mapSessionRow(result.rows[0]) : null;
   }
 
   async insertAnswer(answer: Omit<InterviewAnswerRecord, 'id' | 'createdAt'>): Promise<void> {
     await this.connect();
     await this.client.query(
-      `insert into interview_answers (
-        id, session_id, stage, question, answer_transcript, audio_url, score, feedback, created_at
-      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
+      `insert into interview_answers (id, session_id, stage, question, answer_transcript, audio_url, score, feedback, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
       [
-        randomUUID(),
-        answer.sessionId,
-        answer.stage,
-        answer.question,
-        answer.answerTranscript,
-        answer.audioUrl,
-        answer.score,
-        answer.feedback,
-        new Date().toISOString(),
+        randomUUID(), answer.sessionId, answer.stage, answer.question,
+        answer.answerTranscript, answer.audioUrl, answer.score, answer.feedback, new Date().toISOString(),
       ],
     );
   }
@@ -337,12 +301,9 @@ class PostgresStore implements SessionStore {
     await this.connect();
     const result = await this.client.query(
       `select id, session_id, stage, question, answer_transcript, audio_url, score, feedback, created_at
-       from interview_answers
-       where session_id = $1
-       order by created_at asc`,
+       from interview_answers where session_id = $1 order by created_at asc`,
       [sessionId],
     );
-
     return result.rows.map(mapAnswerRow);
   }
 
@@ -354,40 +315,25 @@ class PostgresStore implements SessionStore {
       createdAt: existing?.createdAt ?? new Date().toISOString(),
       ...report,
     };
-
     await this.client.query(
       `insert into interview_reports (
         id, session_id, overall_score, communication_score, technical_score, behavioral_score,
-        jd_alignment_score, summary, strengths, improvements, stage_scores, created_at
-      ) values (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12
-      )
+        jd_alignment_score, summary, strengths, improvements, stage_scores, question_evaluations, created_at
+      ) values ($1, $2, $3, $4, $5, $6, $7, $8, $9::jsonb, $10::jsonb, $11::jsonb, $12::jsonb, $13)
       on conflict (session_id) do update set
-        overall_score = excluded.overall_score,
-        communication_score = excluded.communication_score,
-        technical_score = excluded.technical_score,
-        behavioral_score = excluded.behavioral_score,
-        jd_alignment_score = excluded.jd_alignment_score,
-        summary = excluded.summary,
-        strengths = excluded.strengths,
-        improvements = excluded.improvements,
-        stage_scores = excluded.stage_scores`,
+        overall_score = excluded.overall_score, communication_score = excluded.communication_score,
+        technical_score = excluded.technical_score, behavioral_score = excluded.behavioral_score,
+        jd_alignment_score = excluded.jd_alignment_score, summary = excluded.summary,
+        strengths = excluded.strengths, improvements = excluded.improvements,
+        stage_scores = excluded.stage_scores, question_evaluations = excluded.question_evaluations`,
       [
-        next.id,
-        next.sessionId,
-        next.overallScore,
-        next.communicationScore,
-        next.technicalScore,
-        next.behavioralScore,
-        next.jdAlignmentScore,
-        next.summary,
-        JSON.stringify(next.strengths),
-        JSON.stringify(next.improvements),
-        JSON.stringify(next.stageScores),
+        next.id, next.sessionId, next.overallScore, next.communicationScore, next.technicalScore,
+        next.behavioralScore, next.jdAlignmentScore, next.summary,
+        JSON.stringify(next.strengths), JSON.stringify(next.improvements),
+        JSON.stringify(next.stageScores), JSON.stringify(next.questionEvaluations ?? []),
         next.createdAt,
       ],
     );
-
     return next;
   }
 
@@ -395,13 +341,10 @@ class PostgresStore implements SessionStore {
     await this.connect();
     const result = await this.client.query(
       `select id, session_id, overall_score, communication_score, technical_score, behavioral_score,
-              jd_alignment_score, summary, strengths, improvements, stage_scores, created_at
-       from interview_reports
-       where session_id = $1
-       limit 1`,
+              jd_alignment_score, summary, strengths, improvements, stage_scores, question_evaluations, created_at
+       from interview_reports where session_id = $1 limit 1`,
       [sessionId],
     );
-
     return result.rows[0] ? mapReportRow(result.rows[0]) : null;
   }
 
@@ -410,36 +353,19 @@ class PostgresStore implements SessionStore {
   ): Promise<InterviewTranscriptEventRecord> {
     await this.connect();
     const result = await this.client.query(
-      `insert into interview_transcript_events (
-        id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at
-      ) values (
-        $1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11
-      )
-      on conflict (event_id) do update set
-        session_id = excluded.session_id,
-        turn_id = excluded.turn_id,
-        role = excluded.role,
-        type = excluded.type,
-        stage = excluded.stage,
-        question = excluded.question,
-        text = excluded.text,
-        metadata = excluded.metadata
-      returning id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at`,
+      `insert into interview_transcript_events (id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10::jsonb, $11)
+       on conflict (event_id) do update set
+         session_id = excluded.session_id, turn_id = excluded.turn_id, role = excluded.role,
+         type = excluded.type, stage = excluded.stage, question = excluded.question,
+         text = excluded.text, metadata = excluded.metadata
+       returning id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at`,
       [
-        event.id ?? randomUUID(),
-        event.sessionId,
-        event.eventId,
-        event.turnId,
-        event.role,
-        event.type,
-        event.stage,
-        event.question,
-        event.text,
-        JSON.stringify(event.metadata),
-        event.createdAt ?? new Date().toISOString(),
+        event.id ?? randomUUID(), event.sessionId, event.eventId, event.turnId,
+        event.role, event.type, event.stage, event.question, event.text,
+        JSON.stringify(event.metadata), event.createdAt ?? new Date().toISOString(),
       ],
     );
-
     return mapTranscriptEventRow(result.rows[0]);
   }
 
@@ -448,32 +374,18 @@ class PostgresStore implements SessionStore {
   ): Promise<InterviewTurnRecord> {
     await this.connect();
     const result = await this.client.query(
-      `insert into interview_turns (
-        id, session_id, turn_id, role, stage, question, text, metadata, created_at
-      ) values (
-        $1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9
-      )
-      on conflict (turn_id) do update set
-        session_id = excluded.session_id,
-        role = excluded.role,
-        stage = excluded.stage,
-        question = excluded.question,
-        text = excluded.text,
-        metadata = excluded.metadata
-      returning id, session_id, turn_id, role, stage, question, text, metadata, created_at`,
+      `insert into interview_turns (id, session_id, turn_id, role, stage, question, text, metadata, created_at)
+       values ($1, $2, $3, $4, $5, $6, $7, $8::jsonb, $9)
+       on conflict (turn_id) do update set
+         session_id = excluded.session_id, role = excluded.role, stage = excluded.stage,
+         question = excluded.question, text = excluded.text, metadata = excluded.metadata
+       returning id, session_id, turn_id, role, stage, question, text, metadata, created_at`,
       [
-        turn.id ?? randomUUID(),
-        turn.sessionId,
-        turn.turnId,
-        turn.role,
-        turn.stage,
-        turn.question,
-        turn.text,
-        JSON.stringify(turn.metadata),
+        turn.id ?? randomUUID(), turn.sessionId, turn.turnId, turn.role,
+        turn.stage, turn.question, turn.text, JSON.stringify(turn.metadata),
         turn.createdAt ?? new Date().toISOString(),
       ],
     );
-
     return mapTurnRow(result.rows[0]);
   }
 
@@ -481,12 +393,9 @@ class PostgresStore implements SessionStore {
     await this.connect();
     const result = await this.client.query(
       `select id, session_id, event_id, turn_id, role, type, stage, question, text, metadata, created_at
-       from interview_transcript_events
-       where session_id = $1
-       order by created_at asc`,
+       from interview_transcript_events where session_id = $1 order by created_at asc`,
       [sessionId],
     );
-
     return result.rows.map(mapTranscriptEventRow);
   }
 
@@ -494,21 +403,33 @@ class PostgresStore implements SessionStore {
     await this.connect();
     const result = await this.client.query(
       `select id, session_id, turn_id, role, stage, question, text, metadata, created_at
-       from interview_turns
-       where session_id = $1
-       order by created_at asc`,
+       from interview_turns where session_id = $1 order by created_at asc`,
       [sessionId],
     );
-
     return result.rows.map(mapTurnRow);
   }
 
-  async insertInterviewBrief(_brief: InterviewBriefRecord): Promise<void> {
-    throw new Error('Interview briefs require the file-backed store. PostgresStore support is not yet implemented.');
+  async insertInterviewBrief(brief: InterviewBriefRecord): Promise<void> {
+    await this.connect();
+    await this.client.query(
+      `insert into interview_briefs (id, mode, access_code_hash, title, summary, focus_areas, question_bank, rubric, created_at, expires_at)
+       values ($1, $2, $3, $4, $5, $6::jsonb, $7::jsonb, $8::jsonb, $9, $10)`,
+      [
+        brief.id, brief.mode, brief.accessCodeHash, brief.title, brief.summary,
+        JSON.stringify(brief.focusAreas), JSON.stringify(brief.questionBank),
+        JSON.stringify(brief.rubric), brief.createdAt, brief.expiresAt,
+      ],
+    );
   }
 
-  async findInterviewBrief(_id: string): Promise<InterviewBriefRecord | null> {
-    throw new Error('Interview briefs require the file-backed store. PostgresStore support is not yet implemented.');
+  async findInterviewBrief(id: string): Promise<InterviewBriefRecord | null> {
+    await this.connect();
+    const result = await this.client.query(
+      `select id, mode, access_code_hash, title, summary, focus_areas, question_bank, rubric, created_at, expires_at
+       from interview_briefs where id = $1 limit 1`,
+      [id],
+    );
+    return result.rows[0] ? mapBriefRow(result.rows[0]) : null;
   }
 
   private async connect(): Promise<void> {
@@ -519,16 +440,9 @@ class PostgresStore implements SessionStore {
   }
 }
 
-function normalizeConnectionString(value: string): string {
-  if (shouldUseSsl(value)) {
-    return value.replace(/\?.*$/, '');
-  }
-  return value;
-}
-
-function shouldUseSsl(value: string): boolean {
-  return /sslmode=require/i.test(value) || /railway/i.test(value);
-}
+// ---------------------------------------------------------------------------
+// Row mappers
+// ---------------------------------------------------------------------------
 
 function mapSessionRow(row: Record<string, unknown>): InterviewSessionRecord {
   return {
@@ -578,6 +492,7 @@ function mapReportRow(row: Record<string, unknown>): InterviewReportRecord {
     strengths: parseStringArray(row.strengths),
     improvements: parseStringArray(row.improvements),
     stageScores: parseStageScores(row.stage_scores),
+    questionEvaluations: parseQuestionEvaluations(row.question_evaluations),
     createdAt: dateString(row.created_at),
   };
 }
@@ -612,6 +527,34 @@ function mapTurnRow(row: Record<string, unknown>): InterviewTurnRecord {
   };
 }
 
+function mapBriefRow(row: Record<string, unknown>): InterviewBriefRecord {
+  return {
+    id: String(row.id),
+    mode: String(row.mode) as InterviewBriefRecord['mode'],
+    accessCodeHash: String(row.access_code_hash),
+    title: String(row.title),
+    summary: String(row.summary),
+    focusAreas: parseStringArray(row.focus_areas),
+    questionBank: parseStringArray(row.question_bank),
+    rubric: parseRubricArray(row.rubric),
+    createdAt: dateString(row.created_at),
+    expiresAt: dateString(row.expires_at),
+  };
+}
+
+// ---------------------------------------------------------------------------
+// Shared utilities
+// ---------------------------------------------------------------------------
+
+function normalizeConnectionString(value: string): string {
+  if (shouldUseSsl(value)) return value.replace(/\?.*$/, '');
+  return value;
+}
+
+function shouldUseSsl(value: string): boolean {
+  return /sslmode=require/i.test(value) || /railway/i.test(value) || /supabase/i.test(value);
+}
+
 function nullableString(value: unknown): string | null {
   return typeof value === 'string' ? value : value == null ? null : String(value);
 }
@@ -621,44 +564,53 @@ function nullableNumber(value: unknown): number | null {
 }
 
 function dateString(value: unknown): string {
-  if (value instanceof Date) {
-    return value.toISOString();
-  }
+  if (value instanceof Date) return value.toISOString();
   return String(value);
 }
 
 function nullableDateString(value: unknown): string | null {
-  if (value == null) {
-    return null;
-  }
+  if (value == null) return null;
   return dateString(value);
 }
 
 function parseStringArray(value: unknown): string[] {
-  if (Array.isArray(value)) {
-    return value.filter((item): item is string => typeof item === 'string');
-  }
+  if (Array.isArray(value)) return value.filter((item): item is string => typeof item === 'string');
   return [];
 }
 
+function parseRubricArray(value: unknown): Array<{ id: string; name: string }> {
+  if (!Array.isArray(value)) return [];
+  return value.map((item) => {
+    const rec = item as Record<string, unknown>;
+    return { id: String(rec.id ?? ''), name: String(rec.name ?? '') };
+  });
+}
+
 function parseStageScores(value: unknown): Record<string, number> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>).map(([key, score]) => [
+      key, typeof score === 'number' ? score : Number(score),
+    ]),
+  );
+}
 
-  const entries = Object.entries(value as Record<string, unknown>).map(([key, score]) => [
-    key,
-    typeof score === 'number' ? score : Number(score),
-  ]);
-
-  return Object.fromEntries(entries);
+function parseQuestionEvaluations(value: unknown): QuestionEvaluation[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(Boolean).map((item) => {
+    const r = item as Record<string, unknown>;
+    return {
+      question: String(r.question ?? ''),
+      answerSummary: String(r.answerSummary ?? ''),
+      score: typeof r.score === 'number' ? r.score : Number(r.score ?? 0),
+      feedback: String(r.feedback ?? ''),
+      improvement: String(r.improvement ?? ''),
+    };
+  });
 }
 
 function parseRecord(value: unknown): Record<string, unknown> {
-  if (!value || typeof value !== 'object' || Array.isArray(value)) {
-    return {};
-  }
-
+  if (!value || typeof value !== 'object' || Array.isArray(value)) return {};
   return value as Record<string, unknown>;
 }
 

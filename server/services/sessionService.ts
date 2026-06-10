@@ -25,7 +25,7 @@ import { TokenService } from './tokenService.js';
 import { QuestionService } from './questionService.js';
 import { ScoringService } from './scoringService.js';
 import { CallbackService } from './callbackService.js';
-import { InterviewReportGenerator, MistralInterviewServiceError } from './mistralInterviewService.js';
+import { InterviewReportGenerator, GroqInterviewServiceError } from './groqInterviewService.js';
 
 type SessionWriteAuth =
   | { type: 'session'; token: string }
@@ -359,7 +359,7 @@ export class SessionService {
     brief: InterviewBrief,
   ): Promise<InterviewReportDraft> {
     const heuristicAnswers = selectHeuristicAnswers(answers, turns);
-    if (!this.shouldUseMistralReporting() || !this.reportGenerator) {
+    if (!this.shouldUseGroqReporting() || !this.reportGenerator) {
       return this.scoringService.score(session, heuristicAnswers, interviewMode, brief);
     }
 
@@ -374,17 +374,17 @@ export class SessionService {
       });
       console.info('[pathwisse-mockinterview] Interview report generated.', {
         sessionId: session.id,
-        reportProvider: 'mistral',
-        reportModel: process.env.MISTRAL_LLM_MODEL?.trim() || 'mistral-small-latest',
+        reportProvider: 'groq',
+        reportModel: process.env.GROQ_MODEL?.trim() || 'llama-3.1-8b-instant',
         fallbackUsed: false,
       });
       return report;
     } catch (error) {
-      const reason = error instanceof MistralInterviewServiceError ? error.code : 'unknown';
+      const reason = error instanceof GroqInterviewServiceError ? error.code : 'unknown';
       console.warn('[pathwisse-mockinterview] Falling back to heuristic scoring.', {
         sessionId: session.id,
-        reportProvider: 'mistral',
-        reportModel: process.env.MISTRAL_LLM_MODEL?.trim() || 'mistral-small-latest',
+        reportProvider: 'groq',
+        reportModel: process.env.GROQ_MODEL?.trim() || 'llama-3.1-8b-instant',
         fallbackUsed: true,
         fallbackReason: reason,
       });
@@ -603,10 +603,10 @@ export class SessionService {
     return `https://${normalizedDomain}/${roomName}`;
   }
 
-  private shouldUseMistralReporting(): boolean {
+  private shouldUseGroqReporting(): boolean {
     const provider = (process.env.LLM_PROVIDER ?? 'mock').trim().toLowerCase();
-    const apiKey = process.env.MISTRAL_API_KEY?.trim();
-    return provider === 'mistral' && Boolean(apiKey);
+    const apiKey = process.env.GROQ_API_KEY?.trim();
+    return provider === 'groq' && Boolean(apiKey);
   }
 }
 

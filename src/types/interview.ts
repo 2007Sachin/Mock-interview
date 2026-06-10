@@ -154,6 +154,14 @@ export type PipecatBrowserEvent =
   | PipecatErrorEvent
   | InterviewCompleteEvent;
 
+export interface QuestionEvaluation {
+  question: string;
+  answerSummary: string;
+  score: number;
+  feedback: string;
+  improvement: string;
+}
+
 export interface InterviewReport {
   id: string;
   sessionId: string;
@@ -166,5 +174,6 @@ export interface InterviewReport {
   strengths: string[];
   improvements: string[];
   stageScores: Record<string, number>;
+  questionEvaluations?: QuestionEvaluation[];
   status: InterviewSessionStatus;
 }

@@ -8,7 +8,7 @@ from pydantic import BaseModel
 
 from app.career_ops.client import InternalVoiceContext
 from app.core.config import settings
-from app.interview.prompt_builder import build_mistral_messages
+from app.interview.prompt_builder import build_chat_messages
 
 
 class AssistantTurn(BaseModel):
@@ -28,24 +28,24 @@ class OrchestratorInput:
     is_final_stage: bool
 
 
-class MistralInterviewOrchestrator:
+class GroqInterviewOrchestrator:
     def __init__(self) -> None:
         self._timeout = settings.request_timeout_seconds
 
     async def generate_turn(self, request: OrchestratorInput) -> AssistantTurn:
-        if settings.mistral_api_key.strip():
+        if settings.groq_api_key.strip():
             try:
-                return await self._generate_with_mistral(request)
+                return await self._generate_with_groq(request)
             except Exception:
                 pass
         return self._generate_fallback(request)
 
-    async def _generate_with_mistral(self, request: OrchestratorInput) -> AssistantTurn:
+    async def _generate_with_groq(self, request: OrchestratorInput) -> AssistantTurn:
         payload = {
-            "model": settings.mistral_llm_model,
-            "temperature": settings.mistral_temperature,
-            "max_tokens": settings.mistral_max_tokens,
-            "messages": build_mistral_messages(
+            "model": settings.groq_model,
+            "temperature": settings.groq_temperature,
+            "max_tokens": settings.groq_max_tokens,
+            "messages": build_chat_messages(
                 context=request.context,
                 stage=request.stage,
                 prior_user_turns=request.prior_user_turns,
@@ -54,11 +54,11 @@ class MistralInterviewOrchestrator:
             ),
         }
         headers = {
-            "Authorization": f"Bearer {settings.mistral_api_key}",
+            "Authorization": f"Bearer {settings.groq_api_key}",
             "Content-Type": "application/json",
         }
         async with httpx.AsyncClient(timeout=self._timeout) as client:
-            response = await client.post("https://api.mistral.ai/v1/chat/completions", headers=headers, json=payload)
+            response = await client.post("https://api.groq.com/openai/v1/chat/completions", headers=headers, json=payload)
         response.raise_for_status()
         content = _extract_content(response.json())
         parsed = _parse_json_object(content)
@@ -76,11 +76,11 @@ class MistralInterviewOrchestrator:
 def _extract_content(payload: dict) -> str:
     choices = payload.get("choices")
     if not isinstance(choices, list) or not choices:
-        raise ValueError("Mistral response did not contain choices.")
+        raise ValueError("Groq response did not contain choices.")
 
     message = choices[0].get("message")
     if not isinstance(message, dict):
-        raise ValueError("Mistral response did not contain a message.")
+        raise ValueError("Groq response did not contain a message.")
 
     content = message.get("content")
     if isinstance(content, str):
@@ -92,7 +92,7 @@ def _extract_content(payload: dict) -> str:
         if merged.strip():
             return merged
 
-    raise ValueError("Mistral response content was empty.")
+    raise ValueError("Groq response content was empty.")
 
 
 def _parse_json_object(content: str) -> dict:
@@ -106,13 +106,13 @@ def _parse_json_object(content: str) -> dict:
     start = normalized.find("{")
     end = normalized.rfind("}")
     if start == -1 or end == -1 or end <= start:
-        raise ValueError("Mistral response did not contain a JSON object.")
+        raise ValueError("Groq response did not contain a JSON object.")
 
     return json.loads(normalized[start : end + 1])
 
 
 # ---------------------------------------------------------------------------
-# Mode-specific fallback generators (used when Mistral is unavailable)
+# Mode-specific fallback generators (used when Groq is unavailable)
 # ---------------------------------------------------------------------------
 
 def _fallback_resume(request: OrchestratorInput) -> AssistantTurn:

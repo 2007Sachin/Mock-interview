@@ -187,6 +187,7 @@ export function usePipecatInterview({
   const [interimTranscript, setInterimTranscript] = useState('');
   const [finalTranscript, setFinalTranscript] = useState('');
   const [assistantTranscript, setAssistantTranscript] = useState('');
+  const [isMuted, setIsMuted] = useState(false);
   const [resolvedStage, setResolvedStage] = useState(currentStage);
   const [resolvedQuestion, setResolvedQuestion] = useState(currentQuestion);
   const [transport, setTransport] = useState<PipecatTransportType>(env.voiceTransport);
@@ -520,13 +521,57 @@ export function usePipecatInterview({
     }
 
     if (!kokoro.isReady) {
-      const nextError = 'Enable audio before starting the interview so Kokoro can speak assistant text locally.';
-      setError(nextError);
-      throw new Error(nextError);
+      await kokoro.init();
     }
 
     setAssistantTranscript(resolvedQuestion);
     speakAssistantText(resolvedQuestion, true);
+  };
+
+  const submitAnswer = async (text?: string) => {
+    const nextText = (text ?? finalTranscript).trim();
+    if (!nextText) {
+      setError('No answer recorded yet. Speak or type your answer first.');
+      return;
+    }
+
+    setError('');
+
+    if (transport === 'websocket' && websocketRef.current?.readyState === WebSocket.OPEN) {
+      websocketRef.current.send(JSON.stringify({
+        type: 'user_final_transcript',
+        text: nextText,
+        stage: resolvedStage,
+        question: resolvedQuestion,
+        createdAt: new Date().toISOString(),
+      }));
+    }
+
+    if (onManualFallbackSubmit) {
+      try {
+        await onManualFallbackSubmit(nextText);
+      } catch (submitError) {
+        setError(`Unable to record answer. ${getErrorMessage(submitError)}`);
+        return;
+      }
+    }
+
+    setInterimTranscript('');
+    setFinalTranscript('');
+  };
+
+  const repeatQuestion = () => {
+    if (resolvedQuestion) {
+      speakAssistantText(resolvedQuestion, true);
+    }
+  };
+
+  const toggleMute = () => {
+    const next = !isMuted;
+    setIsMuted(next);
+    if (clientRef.current) {
+      void clientRef.current.enableMic(!next);
+    }
   };
 
   const submitManualAnswer = async (text: string) => {
@@ -581,11 +626,15 @@ export function usePipecatInterview({
     currentStage: resolvedStage,
     currentQuestion: resolvedQuestion,
     transport,
+    isMuted,
     ...providerMetadata,
     connect,
     disconnect,
     startInterview,
+    submitAnswer,
     submitManualAnswer,
+    repeatQuestion,
+    toggleMute,
     enableAudio: kokoro.init,
     stopSpeaking: kokoro.stop,
     error,

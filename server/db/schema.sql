@@ -43,8 +43,10 @@ create table if not exists interview_reports (
   strengths jsonb not null default '[]'::jsonb,
   improvements jsonb not null default '[]'::jsonb,
   stage_scores jsonb not null default '{}'::jsonb,
+  question_evaluations jsonb not null default '[]'::jsonb,
   created_at timestamptz not null default now()
 );
+alter table interview_reports add column if not exists question_evaluations jsonb not null default '[]'::jsonb;
 
 create table if not exists interview_turns (
   id uuid primary key default gen_random_uuid(),
@@ -92,3 +94,19 @@ create index if not exists interview_transcript_events_session_id_created_at_idx
 
 create index if not exists interview_sessions_status_idx
   on interview_sessions(status);
+
+create table if not exists interview_briefs (
+  id uuid primary key,
+  mode text not null,
+  access_code_hash text not null,
+  title text not null,
+  summary text not null,
+  focus_areas jsonb not null default '[]'::jsonb,
+  question_bank jsonb not null default '[]'::jsonb,
+  rubric jsonb not null default '[]'::jsonb,
+  created_at timestamptz not null,
+  expires_at timestamptz not null
+);
+
+create index if not exists interview_briefs_access_code_hash_idx
+  on interview_briefs(access_code_hash);

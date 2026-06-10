@@ -27,6 +27,20 @@ export function InterviewRoom() {
     [context.data?.stages, currentStageIndex],
   );
 
+  const totalQuestions = useMemo(() => {
+    const stages = context.data?.stages ?? [];
+    const total = stages.reduce((sum, stageId) => {
+      const stage = INTERVIEW_STAGES.find((s) => s.id === stageId);
+      return sum + (stage?.questionCount ?? 0);
+    }, 0);
+    return total || 8;
+  }, [context.data?.stages]);
+
+  const currentQuestionNumber = useMemo(
+    () => Object.values(stageAnswers).reduce((sum, answers) => sum + answers.length, 0) + 1,
+    [stageAnswers],
+  );
+
   useEffect(() => {
     if (!onboardingComplete || !sessionId || !sessionToken || !currentStage) return;
 
@@ -98,6 +112,16 @@ export function InterviewRoom() {
     }
   };
 
+  const handleEndInterview = async () => {
+    if (!sessionToken) return;
+    try {
+      const report = await completeInterview(sessionId, sessionToken);
+      navigate(`/interview/${sessionId}/report`, { state: { report } });
+    } catch {
+      setRoomError('Unable to end the interview right now. Please try again.');
+    }
+  };
+
   if (!sessionToken) {
     return (
       <div className="mx-auto flex min-h-screen max-w-2xl items-center px-6">
@@ -129,7 +153,7 @@ export function InterviewRoom() {
     <div className="mx-auto min-h-screen max-w-3xl space-y-6 px-6 py-10">
       <div className="space-y-1">
         <p className="text-sm uppercase tracking-[0.4em] text-emerald-200">Live Mock Interview</p>
-        <h1 className="text-3xl font-bold text-white">
+        <h1 className="text-2xl font-bold text-white">
           {context.data?.roleTitle ?? 'Loading…'}
         </h1>
         {context.data?.company && (
@@ -150,7 +174,10 @@ export function InterviewRoom() {
           sessionId={sessionId}
           currentStage={currentStage}
           currentQuestion={currentQuestion}
+          currentQuestionNumber={currentQuestionNumber}
+          totalQuestions={totalQuestions}
           onManualFallbackSubmit={handleSubmitAnswer}
+          onEndInterview={handleEndInterview}
         />
       )}
     </div>

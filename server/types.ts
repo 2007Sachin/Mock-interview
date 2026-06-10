@@ -75,6 +75,14 @@ export interface InterviewAnswerRecord {
   createdAt: string;
 }
 
+export interface QuestionEvaluation {
+  question: string;
+  answerSummary: string;
+  score: number;
+  feedback: string;
+  improvement: string;
+}
+
 export interface InterviewReportRecord {
   id: string;
   sessionId: string;
@@ -87,6 +95,7 @@ export interface InterviewReportRecord {
   strengths: string[];
   improvements: string[];
   stageScores: Record<string, number>;
+  questionEvaluations: QuestionEvaluation[];
   createdAt: string;
 }
 

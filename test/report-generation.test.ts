@@ -11,20 +11,20 @@ import {
   type InterviewTurnRecord,
 } from '../server/types.ts';
 import {
-  MistralInterviewService,
-  MistralInterviewServiceError,
+  GroqInterviewService,
+  GroqInterviewServiceError,
   type InterviewReportGenerationInput,
   type InterviewReportGenerator,
-} from '../server/services/mistralInterviewService.ts';
+} from '../server/services/groqInterviewService.ts';
 import { SessionService } from '../server/services/sessionService.ts';
 import { ScoringService } from '../server/services/scoringService.ts';
 import { TokenService } from '../server/services/tokenService.ts';
 
-test('MistralInterviewService normalizes JSON output into a report draft', async () => {
-  const service = new MistralInterviewService({
-    provider: 'mistral',
+test('GroqInterviewService normalizes JSON output into a report draft', async () => {
+  const service = new GroqInterviewService({
+    provider: 'groq',
     apiKey: 'test-key',
-    model: 'mistral-small-latest',
+    model: 'llama-3.1-8b-instant',
     temperature: 0.3,
     maxTokens: 1200,
     timeoutMs: 15_000,
@@ -71,13 +71,14 @@ test('MistralInterviewService normalizes JSON output into a report draft', async
       introduction: 80,
       jd_technical: 88,
     },
+    questionEvaluations: [],
   });
 });
 
-test('MistralInterviewService retries a provider failure once before succeeding', async () => {
+test('GroqInterviewService retries a provider failure once before succeeding', async () => {
   let attempts = 0;
-  const service = new MistralInterviewService({
-    provider: 'mistral',
+  const service = new GroqInterviewService({
+    provider: 'groq',
     apiKey: 'test-key',
     retryCount: 1,
     fetch: async () => {
@@ -172,8 +173,8 @@ test('SessionService.complete passes richer Pipecat context to Mistral and avoid
   );
 
   await withEnv({
-    LLM_PROVIDER: 'mistral',
-    MISTRAL_API_KEY: 'test-key',
+    LLM_PROVIDER: 'groq',
+    GROQ_API_KEY: 'test-key',
   }, async () => {
     const report = await service.complete(store.session.id, sessionToken);
     assert.equal(report.overallScore, 88);
@@ -210,14 +211,14 @@ test('SessionService.complete falls back to ScoringService when Mistral generati
     'http://localhost:5174',
     {
       generateReport: async () => {
-        throw new MistralInterviewServiceError('validation', 'Invalid report payload.');
+        throw new GroqInterviewServiceError('validation', 'Invalid report payload.');
       },
     },
   );
 
   await withEnv({
-    LLM_PROVIDER: 'mistral',
-    MISTRAL_API_KEY: 'test-key',
+    LLM_PROVIDER: 'groq',
+    GROQ_API_KEY: 'test-key',
   }, async () => {
     const report = await service.complete(store.session.id, sessionToken);
     assert.match(report.summary, /The candidate showed promising alignment/);
@@ -257,14 +258,14 @@ test('SessionService.complete uses Pipecat user turns for heuristic fallback whe
     'http://localhost:5174',
     {
       generateReport: async () => {
-        throw new MistralInterviewServiceError('timeout', 'Timed out.');
+        throw new GroqInterviewServiceError('timeout', 'Timed out.');
       },
     },
   );
 
   await withEnv({
-    LLM_PROVIDER: 'mistral',
-    MISTRAL_API_KEY: 'test-key',
+    LLM_PROVIDER: 'groq',
+    GROQ_API_KEY: 'test-key',
   }, async () => {
     const report = await service.complete(store.session.id, sessionToken);
     assert.ok(report.communicationScore && report.communicationScore > 55);
