@@ -1,7 +1,7 @@
 import type { AnswerResult, Mode, Session } from './types';
 
 // Same-origin in dev (Vite proxies /api); set VITE_API_URL for a deployed backend.
-const BASE = import.meta.env.VITE_API_URL ?? '';
+const BASE = import.meta.env.VITE_API_URL || '';
 
 export class ApiError extends Error {
   constructor(
@@ -43,8 +43,20 @@ export function createSession(input: CreateSessionInput): Promise<Session> {
   return request<Session>('/api/session', { method: 'POST', body: form });
 }
 
-export function submitAnswer(sessionId: string, audio: Blob): Promise<AnswerResult> {
+export function submitAnswer(sessionId: string, answer: Blob | string): Promise<AnswerResult> {
   const form = new FormData();
-  form.append('audio', audio, 'answer.webm');
+  if (typeof answer === 'string') {
+    form.append('text', answer);
+  } else {
+    form.append('audio', answer, 'answer.webm');
+  }
   return request<AnswerResult>(`/api/session/${sessionId}/answer`, { method: 'POST', body: form });
+}
+
+export function skipQuestion(sessionId: string): Promise<Omit<AnswerResult, 'transcript'>> {
+  return request(`/api/session/${sessionId}/skip`, { method: 'POST' });
+}
+
+export function endSession(sessionId: string): Promise<{ done: true }> {
+  return request(`/api/session/${sessionId}/end`, { method: 'POST' });
 }

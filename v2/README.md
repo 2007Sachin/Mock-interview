@@ -66,3 +66,17 @@ Verify it locally:
 5. Watch the "Transcribing your answer…" state, then check that **your previous answer** appears as an accurate transcript and the second question is shown and spoken.
 6. Answer question 2 the same way. You should land on **Interview complete** with the transcript of your last answer.
 7. Optional: confirm the session was persisted — `ls v2/server/data/sessions/` shows one JSON file containing your transcripts.
+
+### Stage 2 — full interview flow ✅
+
+What exists: briefing screen (focus areas, question count, expected length), mic check with playback, interviewer intro (name via `VITE_INTERVIEWER_NAME`, intro line spoken), progress header + bar, **Repeat question**, **Skip**, **End interview**, a **Type instead** text fallback, and the animated interviewer orb whose SPEAKING / LISTENING / THINKING states follow the actual turn state machine. New endpoints: `POST /api/session/:id/skip`, `POST /api/session/:id/end`, and `/answer` now also accepts a `text` field.
+
+Verify it locally (skill mode, start to finish):
+
+1. Start both services and open <http://localhost:5173>. Create a 4-question skill interview.
+2. **Briefing**: check the title, summary, focus areas, "4 questions" and expected length are shown; continue.
+3. **Mic check**: record a test clip, play it back, hear yourself; continue.
+4. **Intro**: the interviewer (default name "Maya") speaks an intro line while the orb pulses indigo (SPEAKING); the Begin button enables when she finishes.
+5. **Room**: confirm "Question 1 of 4" and the progress bar. While the question is read the orb is indigo/rippling (SPEAKING); click **Answer** and it turns amber and breathes (LISTENING); click **Done** and it spins dashed (THINKING) until the transcript lands.
+6. Use each control once across the interview: **Repeat question** (it is re-spoken), **Type instead** (submit one typed answer and see it echoed as the transcript), **Skip** (jumps to the next question, progress advances).
+7. Click **End interview** mid-way once to confirm you land on the completion screen, then run one more interview through all questions to the end.

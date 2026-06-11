@@ -60,7 +60,8 @@ export function sessionsRouter(store: SessionStore): Router {
     return res.json(session);
   });
 
-  // Submit one answer (a recorded audio clip) for the current question.
+  // Submit one answer for the current question: a recorded audio clip
+  // (multipart "audio") or, as a fallback, typed text (field "text").
   router.post('/session/:id/answer', upload.single('audio'), async (req, res) => {
     try {
       const session = await store.get(req.params.id ?? '').catch(() => null);
@@ -68,34 +69,81 @@ export function sessionsRouter(store: SessionStore): Router {
       if (session.status !== 'active') {
         return res.status(409).json({ error: 'This interview has already ended.' });
       }
-      if (!req.file) return res.status(400).json({ error: 'an audio file is required' });
-
-      const transcript = await transcribe(req.file.buffer, req.file.mimetype || 'audio/webm');
 
       const question = session.brief.questionBank[session.currentQuestion];
       if (question === undefined) {
         return res.status(409).json({ error: 'No question is pending for this session.' });
       }
-      session.turns.push({ question, answer: transcript, answeredVia: 'voice' });
-      session.currentQuestion += 1;
 
-      const nextQuestion = session.brief.questionBank[session.currentQuestion];
-      if (nextQuestion === undefined) session.status = 'ended';
-      await store.save(session);
+      const typed = typeof req.body.text === 'string' ? req.body.text.trim() : '';
+      let transcript: string;
+      let answeredVia: 'voice' | 'text';
+      if (req.file) {
+        transcript = await transcribe(req.file.buffer, req.file.mimetype || 'audio/webm');
+        answeredVia = 'voice';
+      } else if (typed) {
+        transcript = typed;
+        answeredVia = 'text';
+      } else {
+        return res.status(400).json({ error: 'an audio file or a text answer is required' });
+      }
 
-      return res.json({
-        transcript,
-        done: nextQuestion === undefined,
-        nextQuestion: nextQuestion ?? null,
-        index: session.currentQuestion,
-        total: session.brief.questionBank.length,
-      });
+      session.turns.push({ question, answer: transcript, answeredVia });
+      return res.json({ transcript, ...(await advance(store, session)) });
     } catch (err) {
       return handleError(res, err, 'Could not process your answer. Please try again.');
     }
   });
 
+  // Skip the current question without answering it.
+  router.post('/session/:id/skip', async (req, res) => {
+    try {
+      const session = await store.get(req.params.id ?? '').catch(() => null);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (session.status !== 'active') {
+        return res.status(409).json({ error: 'This interview has already ended.' });
+      }
+      const question = session.brief.questionBank[session.currentQuestion];
+      if (question === undefined) {
+        return res.status(409).json({ error: 'No question is pending for this session.' });
+      }
+      session.turns.push({ question, skipped: true });
+      return res.json(await advance(store, session));
+    } catch (err) {
+      return handleError(res, err, 'Could not skip the question. Please try again.');
+    }
+  });
+
+  // End the interview early (or confirm completion).
+  router.post('/session/:id/end', async (req, res) => {
+    try {
+      const session = await store.get(req.params.id ?? '').catch(() => null);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (session.status === 'active') {
+        session.status = 'ended';
+        await store.save(session);
+      }
+      return res.json({ done: true });
+    } catch (err) {
+      return handleError(res, err, 'Could not end the interview. Please try again.');
+    }
+  });
+
   return router;
+}
+
+/** Move the session to the next question (ending it if the bank is exhausted) and persist. */
+async function advance(store: SessionStore, session: Session) {
+  session.currentQuestion += 1;
+  const nextQuestion = session.brief.questionBank[session.currentQuestion];
+  if (nextQuestion === undefined) session.status = 'ended';
+  await store.save(session);
+  return {
+    done: nextQuestion === undefined,
+    nextQuestion: nextQuestion ?? null,
+    index: session.currentQuestion,
+    total: session.brief.questionBank.length,
+  };
 }
 
 function handleError(res: Response, err: unknown, friendly: string) {

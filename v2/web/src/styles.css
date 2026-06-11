@@ -176,7 +176,207 @@ input[type='file'] {
   border-radius: 999px;
 }
 
+.card-center {
+  text-align: center;
+}
+
+.card-center .orb {
+  margin: 0 auto 18px;
+}
+
+h3 {
+  margin: 22px 0 6px;
+  font-size: 1rem;
+}
+
+ul {
+  margin: 6px 0 18px;
+  padding-left: 22px;
+  color: var(--c-ink-secondary);
+}
+
+.briefing-grid {
+  display: flex;
+  gap: 12px;
+  margin: 18px 0 6px;
+}
+
+.briefing-stat {
+  flex: 1;
+  background: var(--c-primary-soft);
+  border-radius: var(--radius);
+  padding: 14px 18px;
+  display: flex;
+  flex-direction: column;
+}
+
+.briefing-stat strong {
+  font-size: 1.3rem;
+  color: var(--c-primary-strong);
+}
+
+.briefing-stat span {
+  font-size: 0.85rem;
+  color: var(--c-ink-secondary);
+}
+
+/* ---------- Interviewer orb ---------- */
+
+.orb {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+
+.orb-core {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #818cf8, var(--c-primary) 70%);
+  box-shadow: 0 0 24px rgb(79 70 229 / 0.3);
+  transition: background 0.3s ease, box-shadow 0.3s ease;
+}
+
+.orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--c-primary);
+  opacity: 0;
+}
+
+/* SPEAKING: indigo core gently swelling, rings ripple outward */
+.orb[data-state='speaking'] .orb-core {
+  animation: orb-swell 1.1s ease-in-out infinite;
+}
+
+.orb[data-state='speaking'] .orb-ring {
+  animation: orb-ripple 1.6s ease-out infinite;
+}
+
+.orb[data-state='speaking'] .orb-ring-2 {
+  animation-delay: 0.8s;
+}
+
+/* LISTENING (recording): amber core, slow breathing */
+.orb[data-state='listening'] .orb-core {
+  background: radial-gradient(circle at 35% 30%, #fbbf24, var(--c-accent) 70%);
+  box-shadow: 0 0 28px rgb(245 158 11 / 0.45);
+  animation: orb-breathe 2.6s ease-in-out infinite;
+}
+
+.orb[data-state='listening'] .orb-ring {
+  border-color: var(--c-accent);
+  opacity: 0.35;
+}
+
+/* THINKING (transcribing / LLM): muted core, orbiting ring */
+.orb[data-state='thinking'] .orb-core {
+  background: radial-gradient(circle at 35% 30%, #a5b4fc, #6366f1 70%);
+  animation: orb-breathe 1.4s ease-in-out infinite;
+}
+
+.orb[data-state='thinking'] .orb-ring {
+  opacity: 0.6;
+  border-style: dashed;
+  animation: orb-spin 2.4s linear infinite;
+}
+
+@keyframes orb-swell {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes orb-ripple {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes orb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
 /* ---------- Interview room ---------- */
+
+.room-header {
+  display: flex;
+  justify-content: space-between;
+  margin-bottom: 8px;
+}
+
+.progress-track {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c-surface-muted);
+  overflow: hidden;
+  margin-bottom: 22px;
+}
+
+.progress-fill {
+  height: 100%;
+  border-radius: 999px;
+  background: var(--c-primary);
+  transition: width 0.4s ease;
+}
+
+.room-stage {
+  display: flex;
+  align-items: center;
+  gap: 22px;
+  margin-bottom: 8px;
+}
+
+.room-stage .orb {
+  flex-shrink: 0;
+}
+
+.room-secondary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-top: 18px;
+}
+
+.typed-answer {
+  margin-top: 16px;
+}
+
+.typed-answer textarea {
+  display: block;
+  width: 100%;
+  font: inherit;
+  color: inherit;
+  padding: 10px 12px;
+  border: 1px solid var(--c-edge);
+  border-radius: 8px;
+  margin-bottom: 10px;
+  resize: vertical;
+}
+
+/* ---------- Interview room (turn controls) ---------- */
 
 .question-text {
   font-size: 1.3rem;
