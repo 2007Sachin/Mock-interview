@@ -1,4 +1,4 @@
-import type { AnswerResult, Mode, Session } from './types';
+import type { AnswerResult, Mode, Report, ReportStatus, Session } from './types';
 
 // Same-origin in dev (Vite proxies /api); set VITE_API_URL for a deployed backend.
 const BASE = import.meta.env.VITE_API_URL || '';
@@ -59,4 +59,12 @@ export function skipQuestion(sessionId: string): Promise<Omit<AnswerResult, 'tra
 
 export function endSession(sessionId: string): Promise<{ done: true }> {
   return request(`/api/session/${sessionId}/end`, { method: 'POST' });
+}
+
+export function getReport(sessionId: string): Promise<{ status: ReportStatus; report: Report | null }> {
+  return request(`/api/session/${sessionId}/report`);
+}
+
+export function retryReport(sessionId: string): Promise<{ status: ReportStatus }> {
+  return request(`/api/session/${sessionId}/report`, { method: 'POST' });
 }

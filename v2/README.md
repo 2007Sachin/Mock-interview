@@ -80,3 +80,15 @@ Verify it locally (skill mode, start to finish):
 5. **Room**: confirm "Question 1 of 4" and the progress bar. While the question is read the orb is indigo/rippling (SPEAKING); click **Answer** and it turns amber and breathes (LISTENING); click **Done** and it spins dashed (THINKING) until the transcript lands.
 6. Use each control once across the interview: **Repeat question** (it is re-spoken), **Type instead** (submit one typed answer and see it echoed as the transcript), **Skip** (jumps to the next question, progress advances).
 7. Click **End interview** mid-way once to confirm you land on the completion screen, then run one more interview through all questions to the end.
+
+### Stage 3 — evaluation & SWOT report ✅
+
+What exists: when the interview ends (last answer or **End interview**), the server immediately starts generating an evaluation with the LLM — overall `{ score, summary, readinessLevel }`, a SWOT with each point citing something the candidate actually said, and per-question feedback. The output is safe-parsed with fallbacks so a malformed LLM response never breaks the page. New endpoints: `GET /api/session/:id/report` (poll) and `POST /api/session/:id/report` (retry after a failure). The report page shows the overall score and readiness up top, the SWOT as a 2×2 card grid, per-question cards below, and has a print-friendly stylesheet behind **Download / print report**.
+
+Verify it locally:
+
+1. Complete a short skill interview (2–4 questions), answering with real spoken (or typed) answers.
+2. After the last answer you land on "Preparing your evaluation…" — because generation starts at interview end, it should resolve within a few seconds.
+3. Check every section renders: overall score + readiness level, all four SWOT quadrants (each point should reference something you actually said), and one card per question with score, feedback, and "How to improve". Skipped questions show score 0.
+4. Click **Download / print report** and confirm the print preview is clean (no buttons, white background).
+5. Failure path: temporarily put a wrong `GROQ_API_KEY` in `.env`, restart the backend, complete a short interview, and confirm you get the "We hit a snag" screen instead of a dead end. Restore the real key, restart the backend, click **Retry evaluation**, and the report appears.

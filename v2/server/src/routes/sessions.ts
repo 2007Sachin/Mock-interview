@@ -4,6 +4,7 @@ import multer from 'multer';
 import { generateBrief } from '../services/brief.js';
 import { GroqError, transcribe } from '../services/groq.js';
 import { extractPdfText } from '../services/pdf.js';
+import { generateReport } from '../services/report.js';
 import type { SessionStore } from '../store/SessionStore.js';
 import type { Mode, Session } from '../types.js';
 
@@ -114,29 +115,81 @@ export function sessionsRouter(store: SessionStore): Router {
     }
   });
 
-  // End the interview early (or confirm completion).
+  // End the interview early (or confirm completion). Report generation
+  // starts here so it is ready (or nearly) when the student opens it.
   router.post('/session/:id/end', async (req, res) => {
     try {
       const session = await store.get(req.params.id ?? '').catch(() => null);
       if (!session) return res.status(404).json({ error: 'Session not found' });
-      if (session.status === 'active') {
-        session.status = 'ended';
-        await store.save(session);
-      }
+      session.status = 'ended';
+      startReportGeneration(store, session);
+      await store.save(session);
       return res.json({ done: true });
     } catch (err) {
       return handleError(res, err, 'Could not end the interview. Please try again.');
     }
   });
 
+  // Poll the evaluation report.
+  router.get('/session/:id/report', async (req, res) => {
+    const session = await store.get(req.params.id ?? '').catch(() => null);
+    if (!session) return res.status(404).json({ error: 'Session not found' });
+    return res.json({ status: session.reportStatus ?? 'pending', report: session.report ?? null });
+  });
+
+  // (Re)start report generation, e.g. after a Groq failure.
+  router.post('/session/:id/report', async (req, res) => {
+    try {
+      const session = await store.get(req.params.id ?? '').catch(() => null);
+      if (!session) return res.status(404).json({ error: 'Session not found' });
+      if (session.status === 'active') {
+        return res.status(409).json({ error: 'The interview is still in progress.' });
+      }
+      if (session.reportStatus === 'error' || !session.reportStatus) {
+        session.reportStatus = undefined;
+        startReportGeneration(store, session);
+        await store.save(session);
+      }
+      return res.json({ status: session.reportStatus });
+    } catch (err) {
+      return handleError(res, err, 'Could not start the evaluation. Please try again.');
+    }
+  });
+
   return router;
+}
+
+/**
+ * Fire-and-forget report generation. Marks the session pending synchronously
+ * (the caller persists it) and saves the result when the LLM call finishes.
+ */
+function startReportGeneration(store: SessionStore, session: Session): void {
+  if (session.reportStatus === 'pending' || session.reportStatus === 'ready') return;
+  session.reportStatus = 'pending';
+  void (async () => {
+    try {
+      const report = await generateReport(session);
+      const fresh = (await store.get(session.id)) ?? session;
+      fresh.report = report;
+      fresh.reportStatus = 'ready';
+      await store.save(fresh);
+    } catch (err) {
+      console.error('Report generation failed:', err);
+      const fresh = (await store.get(session.id).catch(() => null)) ?? session;
+      fresh.reportStatus = 'error';
+      await store.save(fresh).catch(() => undefined);
+    }
+  })();
 }
 
 /** Move the session to the next question (ending it if the bank is exhausted) and persist. */
 async function advance(store: SessionStore, session: Session) {
   session.currentQuestion += 1;
   const nextQuestion = session.brief.questionBank[session.currentQuestion];
-  if (nextQuestion === undefined) session.status = 'ended';
+  if (nextQuestion === undefined) {
+    session.status = 'ended';
+    startReportGeneration(store, session);
+  }
   await store.save(session);
   return {
     done: nextQuestion === undefined,

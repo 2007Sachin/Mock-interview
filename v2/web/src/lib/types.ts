@@ -18,6 +18,36 @@ export interface Session {
   status: 'active' | 'ended';
 }
 
+export interface SwotPoint {
+  point: string;
+  evidence: string;
+}
+
+export interface PerQuestionFeedback {
+  question: string;
+  answerSummary: string;
+  score: number;
+  feedback: string;
+  howToImprove: string;
+}
+
+export interface Report {
+  overall: {
+    score: number;
+    summary: string;
+    readinessLevel: 'needs practice' | 'getting there' | 'interview ready';
+  };
+  swot: {
+    strengths: SwotPoint[];
+    weaknesses: SwotPoint[];
+    opportunities: SwotPoint[];
+    threats: SwotPoint[];
+  };
+  perQuestion: PerQuestionFeedback[];
+}
+
+export type ReportStatus = 'pending' | 'ready' | 'error';
+
 export interface AnswerResult {
   transcript: string;
   done: boolean;

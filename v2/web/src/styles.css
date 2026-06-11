@@ -441,3 +441,195 @@ ul {
   border-radius: 8px;
   font-size: 0.92rem;
 }
+
+/* ---------- Report ---------- */
+
+.loading-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--c-surface-muted);
+  overflow: hidden;
+  margin-top: 18px;
+}
+
+.loading-bar div {
+  height: 100%;
+  width: 35%;
+  border-radius: 999px;
+  background: var(--c-primary);
+  animation: loading-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes loading-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+.report-overall {
+  display: flex;
+  justify-content: space-between;
+  gap: 24px;
+  align-items: flex-start;
+}
+
+.report-score {
+  text-align: center;
+  background: var(--c-primary-soft);
+  border-radius: var(--radius);
+  padding: 18px 26px;
+  flex-shrink: 0;
+}
+
+.report-score strong {
+  display: block;
+  font-size: 2.4rem;
+  line-height: 1;
+  color: var(--c-primary-strong);
+}
+
+.report-score span {
+  color: var(--c-ink-muted);
+  font-size: 0.85rem;
+}
+
+.report-score em {
+  display: block;
+  margin-top: 8px;
+  font-style: normal;
+  font-weight: 600;
+  font-size: 0.85rem;
+  text-transform: capitalize;
+}
+
+.readiness-interview-ready {
+  color: var(--c-success);
+}
+
+.readiness-getting-there {
+  color: var(--c-accent);
+}
+
+.readiness-needs-practice {
+  color: var(--c-danger);
+}
+
+.swot-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 16px;
+  margin-top: 16px;
+}
+
+@media (max-width: 640px) {
+  .swot-grid {
+    grid-template-columns: 1fr;
+  }
+
+  .report-overall {
+    flex-direction: column;
+  }
+}
+
+.swot-card {
+  padding: 20px 22px;
+  border-top: 4px solid var(--c-edge);
+}
+
+.swot-card h3 {
+  margin-top: 0;
+}
+
+.swot-card ul {
+  margin-bottom: 0;
+}
+
+.swot-card li + li {
+  margin-top: 8px;
+}
+
+.swot-strengths {
+  border-top-color: var(--c-success);
+}
+
+.swot-weaknesses {
+  border-top-color: var(--c-danger);
+}
+
+.swot-opportunities {
+  border-top-color: var(--c-primary);
+}
+
+.swot-threats {
+  border-top-color: var(--c-accent);
+}
+
+.evidence {
+  color: var(--c-ink-muted);
+  font-size: 0.9em;
+}
+
+.report-section-title {
+  margin: 28px 0 12px;
+}
+
+.question-card {
+  margin-top: 12px;
+  padding: 20px 24px;
+}
+
+.question-card-header {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  align-items: baseline;
+}
+
+.question-score {
+  flex-shrink: 0;
+  font-weight: 700;
+  color: var(--c-primary-strong);
+}
+
+.improve {
+  background: var(--c-accent-soft);
+  border-radius: 8px;
+  padding: 10px 14px;
+  font-size: 0.95rem;
+}
+
+.report-actions {
+  display: flex;
+  gap: 12px;
+  margin-top: 24px;
+}
+
+/* ---------- Print (report download) ---------- */
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  .shell {
+    max-width: none;
+    padding: 0;
+  }
+
+  .brand span,
+  .no-print {
+    display: none;
+  }
+
+  .card {
+    box-shadow: none;
+    break-inside: avoid;
+  }
+
+  .swot-grid {
+    grid-template-columns: 1fr 1fr;
+  }
+}

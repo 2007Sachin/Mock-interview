@@ -17,6 +17,38 @@ export interface Turn {
 
 export type SessionStatus = 'active' | 'ended';
 
+export type ReadinessLevel = 'needs practice' | 'getting there' | 'interview ready';
+
+export interface SwotPoint {
+  point: string;
+  evidence: string;
+}
+
+export interface PerQuestionFeedback {
+  question: string;
+  answerSummary: string;
+  score: number;
+  feedback: string;
+  howToImprove: string;
+}
+
+export interface Report {
+  overall: {
+    score: number;
+    summary: string;
+    readinessLevel: ReadinessLevel;
+  };
+  swot: {
+    strengths: SwotPoint[];
+    weaknesses: SwotPoint[];
+    opportunities: SwotPoint[];
+    threats: SwotPoint[];
+  };
+  perQuestion: PerQuestionFeedback[];
+}
+
+export type ReportStatus = 'pending' | 'ready' | 'error';
+
 export interface Session {
   id: string;
   mode: Mode;
@@ -26,6 +58,8 @@ export interface Session {
   currentQuestion: number;
   turns: Turn[];
   status: SessionStatus;
+  reportStatus?: ReportStatus;
+  report?: Report;
 }
 
 /** Shape returned to the client (no internal-only fields today, kept as an alias for clarity). */
