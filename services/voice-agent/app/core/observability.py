@@ -3,7 +3,7 @@ import logging
 from datetime import UTC, datetime
 from typing import Any
 
-logger = logging.getLogger("lumina.voice-agent")
+logger = logging.getLogger("pathwisse.voice-agent")
 logging.basicConfig(level=logging.INFO, format="%(message)s")
 
 

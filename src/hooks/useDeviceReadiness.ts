@@ -31,7 +31,6 @@ export interface DeviceReadiness {
   requestPermissions: () => Promise<void>;
   runSpeakerTest: () => Promise<void>;
   markReady: () => void;
-  retry: () => void;
 }
 
 function checkBrowserSupport(): BrowserSupport {
@@ -58,7 +57,6 @@ export function useDeviceReadiness(): DeviceReadiness {
   const [errors, setErrors] = useState<Record<string, string>>({});
 
   const audioContextRef = useRef<AudioContext | null>(null);
-  const analyserRef = useRef<AnalyserNode | null>(null);
   const micStreamRef = useRef<MediaStream | null>(null);
   const animFrameRef = useRef<number | null>(null);
   const browserSupport = checkBrowserSupport();
@@ -86,7 +84,6 @@ export function useDeviceReadiness(): DeviceReadiness {
     source.connect(analyser);
 
     audioContextRef.current = ctx;
-    analyserRef.current = analyser;
 
     const data = new Uint8Array(analyser.frequencyBinCount);
 
@@ -193,32 +190,6 @@ export function useDeviceReadiness(): DeviceReadiness {
     setState('ready');
   }, []);
 
-  const retry = useCallback(() => {
-    stopMicAnalysis();
-
-    if (micStreamRef.current) {
-      for (const track of micStreamRef.current.getTracks()) track.stop();
-      micStreamRef.current = null;
-    }
-
-    if (cameraStream) {
-      for (const track of cameraStream.getTracks()) track.stop();
-    }
-
-    if (audioContextRef.current) {
-      void audioContextRef.current.close();
-      audioContextRef.current = null;
-    }
-
-    setCameraStream(null);
-    setMicAllowed(false);
-    setCameraAllowed(false);
-    setSpeakerTestPassed(false);
-    setMicLevel(0);
-    setErrors({});
-    setState('idle');
-  }, [cameraStream, stopMicAnalysis]);
-
   // Cleanup on unmount
   useEffect(() => {
     return () => {
@@ -246,6 +217,5 @@ export function useDeviceReadiness(): DeviceReadiness {
     requestPermissions,
     runSpeakerTest,
     markReady,
-    retry,
   };
 }

@@ -72,6 +72,7 @@ class Settings(BaseSettings):
     def provider_metadata(self) -> dict[str, str]:
         return {
             "sttProvider": "browser",
+            "sttModel": "web-speech-api",
             "llmProvider": self.llm_provider,
             "llmModel": self.groq_model,
             "ttsProvider": self.tts_provider,

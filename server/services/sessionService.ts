@@ -137,8 +137,10 @@ export class SessionService {
   }
 
   async getSafeContext(sessionId: string, sessionToken: string) {
-    const session = await this.requireAuthorizedSession(sessionId, sessionToken);
-    const briefRecord = await this.store.findInterviewBrief(sessionId).catch(() => null);
+    const [session, briefRecord] = await Promise.all([
+      this.requireAuthorizedSession(sessionId, sessionToken),
+      this.store.findInterviewBrief(sessionId).catch(() => null),
+    ]);
     return {
       sessionId: session.id,
       candidateName: session.payload.user.name,
@@ -151,9 +153,11 @@ export class SessionService {
   }
 
   async createVoiceConnectPayload(sessionId: string, sessionToken: string): Promise<InterviewVoiceConnectPayload> {
-    const session = await this.requireAuthorizedSession(sessionId, sessionToken);
+    const [session, turns] = await Promise.all([
+      this.requireAuthorizedSession(sessionId, sessionToken),
+      this.store.listTurns(sessionId),
+    ]);
     const transport = this.resolveVoiceTransport();
-    const turns = await this.store.listTurns(session.id);
     const lastAssistantTurn = [...turns].reverse().find((turn) => turn.role === 'assistant');
     const currentStage =
       lastAssistantTurn?.stage ??
@@ -205,10 +209,11 @@ export class SessionService {
   }
 
   async getInternalVoiceContext(sessionId: string): Promise<InternalInterviewVoiceContext> {
-    const session = await this.requireSession(sessionId);
-    const answers = await this.store.listAnswers(sessionId);
-
-    const briefRecord = await this.store.findInterviewBrief(sessionId).catch(() => null);
+    const [session, answers, briefRecord] = await Promise.all([
+      this.requireSession(sessionId),
+      this.store.listAnswers(sessionId),
+      this.store.findInterviewBrief(sessionId).catch(() => null),
+    ]);
     const interviewMode: InterviewMode = briefRecord?.mode ?? 'resume';
     const brief: InterviewBrief = briefRecord
       ? {
@@ -290,18 +295,22 @@ export class SessionService {
   }
 
   async complete(sessionId: string, sessionToken: string): Promise<InterviewReportRecord & { status: 'completed' }> {
-    const session = await this.requireAuthorizedSession(sessionId, sessionToken);
-    const [answers, turns, transcriptEvents, briefRecord] = await Promise.all([
+    const completeStartedAt = performance.now();
+    const [session, answers, turns, transcriptEvents, briefRecord] = await Promise.all([
+      this.requireAuthorizedSession(sessionId, sessionToken),
       this.store.listAnswers(sessionId),
       this.store.listTurns(sessionId),
       this.store.listTranscriptEvents(sessionId),
       this.store.findInterviewBrief(sessionId).catch(() => null),
     ]);
+    logReportTiming('report:reads', completeStartedAt);
     const interviewMode: InterviewMode = briefRecord?.mode ?? 'resume';
     const brief: InterviewBrief = briefRecord
       ? { title: briefRecord.title, summary: briefRecord.summary, focusAreas: briefRecord.focusAreas, questionBank: briefRecord.questionBank, rubric: briefRecord.rubric }
       : deriveBriefFromPayload(session.payload);
+    const generateStartedAt = performance.now();
     const scored = await this.generateInterviewReport(session, answers, turns, transcriptEvents, interviewMode, brief);
+    logReportTiming('report:generate', generateStartedAt);
     const report = await this.store.upsertReport({
       sessionId,
       ...scored,
@@ -337,6 +346,7 @@ export class SessionService {
       }));
     }
 
+    logReportTiming('report:total', completeStartedAt);
     return {
       ...report,
       status: 'completed',
@@ -365,6 +375,7 @@ export class SessionService {
       return this.scoringService.score(session, heuristicAnswers, interviewMode, brief);
     }
 
+    const startedAt = performance.now();
     try {
       const report = await this.reportGenerator.generateReport({
         session,
@@ -379,6 +390,7 @@ export class SessionService {
         reportProvider: 'groq',
         reportModel: process.env.GROQ_MODEL?.trim() || 'llama-3.1-8b-instant',
         fallbackUsed: false,
+        durationMs: Math.round(performance.now() - startedAt),
       });
       return report;
     } catch (error) {
@@ -389,6 +401,7 @@ export class SessionService {
         reportModel: process.env.GROQ_MODEL?.trim() || 'llama-3.1-8b-instant',
         fallbackUsed: true,
         fallbackReason: reason,
+        durationMs: Math.round(performance.now() - startedAt),
       });
       return this.scoringService.score(session, heuristicAnswers, interviewMode, brief);
     }
@@ -616,6 +629,11 @@ function generateAccessCode(): string {
   const left = Math.floor(100 + Math.random() * 900);
   const right = Math.floor(100 + Math.random() * 900);
   return `${left}-${right}`;
+}
+
+/** Report-path latency instrumentation. See README "Voice latency timings". */
+function logReportTiming(stage: string, startedAt: number) {
+  console.info(`[report-timing] ${stage}: ${Math.round(performance.now() - startedAt)}ms`);
 }
 
 function normalizeTranscriptEventInput(

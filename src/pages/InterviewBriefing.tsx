@@ -4,7 +4,7 @@ import { buttonStyles } from '@/components/VoiceCallUI';
 import { INTERVIEWER_NAME, INTERVIEW_LENGTH_MINUTES } from '@/lib/interviewer';
 import { formatSessionStorageKey } from '@/lib/signature';
 import { countStageQuestions } from '@/lib/stageEngine';
-import { useInterviewSession } from '@/hooks/useInterviewSession';
+import { useInterviewContext } from '@/hooks/useInterviewSession';
 
 function ExpectationRow({ icon, title, detail }: { icon: string; title: string; detail: string }) {
   return (
@@ -24,7 +24,7 @@ export function InterviewBriefing() {
   const { sessionId = '' } = useParams();
   const navigate = useNavigate();
   const sessionToken = sessionStorage.getItem(formatSessionStorageKey(sessionId));
-  const { context } = useInterviewSession(sessionId, sessionToken);
+  const context = useInterviewContext(sessionId, sessionToken);
 
   if (!sessionToken) {
     return (
@@ -44,7 +44,7 @@ export function InterviewBriefing() {
   const topic = context.data?.roleTitle ?? 'your interview topic';
 
   return (
-    <div className="mx-auto min-h-screen max-w-2xl space-y-8 px-6 py-12">
+    <div className="page-enter stagger-children mx-auto min-h-screen max-w-2xl space-y-8 px-6 py-12">
       <div className="space-y-1 text-center">
         <p className="text-sm uppercase tracking-[0.4em] text-accent">Before we begin</p>
         <h1 className="text-3xl font-bold text-ink">What to expect</h1>
@@ -57,7 +57,7 @@ export function InterviewBriefing() {
         <InterviewerAvatar state="idle" name={INTERVIEWER_NAME} statusOverride="Your interviewer" />
       </div>
 
-      <div className="space-y-3">
+      <div className="stagger-children space-y-3">
         <ExpectationRow
           icon="⏱"
           title={`About ${INTERVIEW_LENGTH_MINUTES} minutes`}

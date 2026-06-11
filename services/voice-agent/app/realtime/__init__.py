@@ -1,1 +1,1 @@
-# Phase 6 websocket runtime helpers live here.
+# Websocket realtime event models and the browser-transcript STT adapter.

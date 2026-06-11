@@ -90,7 +90,18 @@ export function createSessionStore(args: {
 // ---------------------------------------------------------------------------
 
 class FileStore implements SessionStore {
+  // Every write is a read-modify-write of one JSON file. Serialize them so
+  // concurrent inserts (e.g. brief + session created in Promise.all) cannot
+  // clobber each other's changes.
+  private writeQueue: Promise<unknown> = Promise.resolve();
+
   constructor(private readonly filePath: string) {}
+
+  private enqueueWrite<T>(operation: () => Promise<T>): Promise<T> {
+    const result = this.writeQueue.then(operation, operation);
+    this.writeQueue = result.catch(() => undefined);
+    return result;
+  }
 
   private async load(): Promise<DatabaseShape> {
     try {
@@ -107,21 +118,25 @@ class FileStore implements SessionStore {
   }
 
   async insertSession(session: InterviewSessionRecord): Promise<void> {
-    const db = await this.load();
-    db.sessions.push(session);
-    await this.save(db);
+    await this.enqueueWrite(async () => {
+      const db = await this.load();
+      db.sessions.push(session);
+      await this.save(db);
+    });
   }
 
   async updateSession(
     id: string,
     updater: (session: InterviewSessionRecord) => InterviewSessionRecord,
   ): Promise<InterviewSessionRecord | null> {
-    const db = await this.load();
-    const index = db.sessions.findIndex((item) => item.id === id);
-    if (index === -1) return null;
-    db.sessions[index] = updater(db.sessions[index]);
-    await this.save(db);
-    return db.sessions[index];
+    return this.enqueueWrite(async () => {
+      const db = await this.load();
+      const index = db.sessions.findIndex((item) => item.id === id);
+      if (index === -1) return null;
+      db.sessions[index] = updater(db.sessions[index]);
+      await this.save(db);
+      return db.sessions[index];
+    });
   }
 
   async findSession(id: string): Promise<InterviewSessionRecord | null> {
@@ -130,9 +145,11 @@ class FileStore implements SessionStore {
   }
 
   async insertAnswer(answer: Omit<InterviewAnswerRecord, 'id' | 'createdAt'>): Promise<void> {
-    const db = await this.load();
-    db.answers.push({ ...answer, id: randomUUID(), createdAt: new Date().toISOString() });
-    await this.save(db);
+    await this.enqueueWrite(async () => {
+      const db = await this.load();
+      db.answers.push({ ...answer, id: randomUUID(), createdAt: new Date().toISOString() });
+      await this.save(db);
+    });
   }
 
   async listAnswers(sessionId: string): Promise<InterviewAnswerRecord[]> {
@@ -141,20 +158,22 @@ class FileStore implements SessionStore {
   }
 
   async upsertReport(report: Omit<InterviewReportRecord, 'id' | 'createdAt'>): Promise<InterviewReportRecord> {
-    const db = await this.load();
-    const existingIndex = db.reports.findIndex((item) => item.sessionId === report.sessionId);
-    const nextReport: InterviewReportRecord = {
-      id: existingIndex >= 0 ? db.reports[existingIndex].id : randomUUID(),
-      createdAt: existingIndex >= 0 ? db.reports[existingIndex].createdAt : new Date().toISOString(),
-      ...report,
-    };
-    if (existingIndex >= 0) {
-      db.reports[existingIndex] = nextReport;
-    } else {
-      db.reports.push(nextReport);
-    }
-    await this.save(db);
-    return nextReport;
+    return this.enqueueWrite(async () => {
+      const db = await this.load();
+      const existingIndex = db.reports.findIndex((item) => item.sessionId === report.sessionId);
+      const nextReport: InterviewReportRecord = {
+        id: existingIndex >= 0 ? db.reports[existingIndex].id : randomUUID(),
+        createdAt: existingIndex >= 0 ? db.reports[existingIndex].createdAt : new Date().toISOString(),
+        ...report,
+      };
+      if (existingIndex >= 0) {
+        db.reports[existingIndex] = nextReport;
+      } else {
+        db.reports.push(nextReport);
+      }
+      await this.save(db);
+      return nextReport;
+    });
   }
 
   async findReport(sessionId: string): Promise<InterviewReportRecord | null> {
@@ -165,33 +184,37 @@ class FileStore implements SessionStore {
   async upsertTranscriptEvent(
     event: Omit<InterviewTranscriptEventRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTranscriptEventRecord, 'id' | 'createdAt'>>,
   ): Promise<InterviewTranscriptEventRecord> {
-    const db = await this.load();
-    const existing = db.transcriptEvents.find((item) => item.eventId === event.eventId);
-    const nextEvent: InterviewTranscriptEventRecord = {
-      id: existing?.id ?? event.id ?? randomUUID(),
-      createdAt: existing?.createdAt ?? event.createdAt ?? new Date().toISOString(),
-      ...event,
-    };
-    db.transcriptEvents = db.transcriptEvents.filter((item) => item.eventId !== event.eventId);
-    db.transcriptEvents.push(nextEvent);
-    await this.save(db);
-    return nextEvent;
+    return this.enqueueWrite(async () => {
+      const db = await this.load();
+      const existing = db.transcriptEvents.find((item) => item.eventId === event.eventId);
+      const nextEvent: InterviewTranscriptEventRecord = {
+        id: existing?.id ?? event.id ?? randomUUID(),
+        createdAt: existing?.createdAt ?? event.createdAt ?? new Date().toISOString(),
+        ...event,
+      };
+      db.transcriptEvents = db.transcriptEvents.filter((item) => item.eventId !== event.eventId);
+      db.transcriptEvents.push(nextEvent);
+      await this.save(db);
+      return nextEvent;
+    });
   }
 
   async upsertTurn(
     turn: Omit<InterviewTurnRecord, 'id' | 'createdAt'> & Partial<Pick<InterviewTurnRecord, 'id' | 'createdAt'>>,
   ): Promise<InterviewTurnRecord> {
-    const db = await this.load();
-    const existing = db.turns.find((item) => item.turnId === turn.turnId);
-    const nextTurn: InterviewTurnRecord = {
-      id: existing?.id ?? turn.id ?? randomUUID(),
-      createdAt: existing?.createdAt ?? turn.createdAt ?? new Date().toISOString(),
-      ...turn,
-    };
-    db.turns = db.turns.filter((item) => item.turnId !== turn.turnId);
-    db.turns.push(nextTurn);
-    await this.save(db);
-    return nextTurn;
+    return this.enqueueWrite(async () => {
+      const db = await this.load();
+      const existing = db.turns.find((item) => item.turnId === turn.turnId);
+      const nextTurn: InterviewTurnRecord = {
+        id: existing?.id ?? turn.id ?? randomUUID(),
+        createdAt: existing?.createdAt ?? turn.createdAt ?? new Date().toISOString(),
+        ...turn,
+      };
+      db.turns = db.turns.filter((item) => item.turnId !== turn.turnId);
+      db.turns.push(nextTurn);
+      await this.save(db);
+      return nextTurn;
+    });
   }
 
   async listTranscriptEvents(sessionId: string): Promise<InterviewTranscriptEventRecord[]> {
@@ -205,9 +228,11 @@ class FileStore implements SessionStore {
   }
 
   async insertInterviewBrief(brief: InterviewBriefRecord): Promise<void> {
-    const db = await this.load();
-    db.interviewBriefs.push(brief);
-    await this.save(db);
+    await this.enqueueWrite(async () => {
+      const db = await this.load();
+      db.interviewBriefs.push(brief);
+      await this.save(db);
+    });
   }
 
   async findInterviewBrief(id: string): Promise<InterviewBriefRecord | null> {

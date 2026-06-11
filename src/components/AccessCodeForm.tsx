@@ -1,4 +1,5 @@
 import { FormEvent, useState } from 'react';
+import { buttonStyles } from '@/components/VoiceCallUI';
 
 export function AccessCodeForm({
   onSubmit,
@@ -17,26 +18,20 @@ export function AccessCodeForm({
   };
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-4 rounded-[2rem] border border-white/10 bg-white/5 p-6">
-      <div>
-        <p className="text-sm text-slate-300">Enter the access code from Pathwisse LMS.</p>
-      </div>
+    <form onSubmit={handleSubmit} className="space-y-4 rounded-[2rem] border border-edge/30 bg-surface p-6">
+      <p className="text-sm text-ink-secondary">Enter the access code from Pathwisse LMS.</p>
       <input
         value={accessCode}
         onChange={(event) => setAccessCode(event.target.value)}
         placeholder="839-221"
-        className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 font-mono text-2xl font-bold tracking-[0.3em] text-white outline-none"
+        className="w-full rounded-2xl border border-edge/40 bg-canvas px-4 py-3 font-mono text-2xl font-bold tracking-[0.3em] text-ink outline-none placeholder:text-ink-muted focus:border-accent/50"
       />
       {errorMessage ? (
-        <p className="rounded-2xl border border-rose-400/30 bg-rose-500/10 px-4 py-3 text-sm text-rose-200">
+        <p className="rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger" role="alert">
           {errorMessage}
         </p>
       ) : null}
-      <button
-        type="submit"
-        disabled={isSubmitting}
-        className="w-full rounded-2xl bg-emerald-400 px-4 py-3 font-semibold text-slate-950 transition hover:bg-emerald-300 disabled:cursor-not-allowed disabled:opacity-60"
-      >
+      <button type="submit" disabled={isSubmitting} className={`w-full py-3 ${buttonStyles.primary}`}>
         {isSubmitting ? 'Verifying…' : 'Start Interview'}
       </button>
     </form>

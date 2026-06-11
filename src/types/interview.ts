@@ -1,4 +1,17 @@
-export type InterviewMode = 'resume' | 'capstone' | 'skill';
+// Wire types shared with the Node API live in server/types.ts (single source
+// of truth). Only browser-specific shapes are defined locally.
+export type {
+  InterviewMode,
+  InterviewSessionStatus,
+  QuestionEvaluation,
+  InterviewVoiceConnectPayload,
+  WebsocketInterviewVoiceConnectPayload,
+  DailyInterviewVoiceConnectPayload,
+} from '../../server/types';
+export type { VoiceTransport as PipecatTransportType } from '../../server/types';
+
+import type { InterviewSessionStatus, QuestionEvaluation } from '../../server/types';
+
 export type SkillLevel = 'beginner' | 'intermediate' | 'advanced';
 
 export type BriefCreateResponse = {
@@ -28,14 +41,6 @@ export type SkillBriefInput = {
 
 export type BriefCreateInput = ResumeBriefInput | CapstoneBriefInput | SkillBriefInput;
 
-export type InterviewSessionStatus =
-  | 'created'
-  | 'opened'
-  | 'in_progress'
-  | 'completed'
-  | 'expired'
-  | 'failed';
-
 export interface SessionVerifyResponse {
   valid: boolean;
   sessionToken: string;
@@ -60,8 +65,6 @@ export interface NextQuestionResponse {
   totalQuestionsInStage: number;
 }
 
-export type PipecatTransportType = 'websocket' | 'daily';
-
 export type InterviewProviderMetadata = {
   sttProvider: string;
   sttModel: string;
@@ -83,33 +86,6 @@ export type PipecatConnectionStatus =
   | 'ready'
   | 'disconnecting'
   | 'error';
-
-type InterviewVoiceConnectPayloadBase = {
-  sessionId: string;
-  candidateName: string;
-  roleTitle: string;
-  company: string;
-  stages: string[];
-  transport: PipecatTransportType;
-  currentStage?: string | null;
-  currentQuestion?: string | null;
-};
-
-export type WebsocketInterviewVoiceConnectPayload = InterviewVoiceConnectPayloadBase & {
-  transport: 'websocket';
-  voiceToken: string;
-  pipecatConnectUrl: string;
-};
-
-export type DailyInterviewVoiceConnectPayload = InterviewVoiceConnectPayloadBase & {
-  transport: 'daily';
-  connectParams: Record<string, unknown> | null;
-  setupError: string | null;
-};
-
-export type InterviewVoiceConnectPayload =
-  | WebsocketInterviewVoiceConnectPayload
-  | DailyInterviewVoiceConnectPayload;
 
 type PipecatBrowserEventBase = {
   type: string;
@@ -170,14 +146,6 @@ export type PipecatBrowserEvent =
   | BotThinkingEvent
   | PipecatErrorEvent
   | InterviewCompleteEvent;
-
-export interface QuestionEvaluation {
-  question: string;
-  answerSummary: string;
-  score: number;
-  feedback: string;
-  improvement: string;
-}
 
 export interface InterviewReport {
   id: string;

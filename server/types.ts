@@ -224,14 +224,6 @@ export interface InterviewTurnInput {
   metadata?: Record<string, unknown>;
 }
 
-export interface PlaceholderRouteResult {
-  status: 501;
-  body: {
-    code: string;
-    message: string;
-  };
-}
-
 export type InterviewMode = 'resume' | 'capstone' | 'skill';
 
 export interface InterviewBrief {

@@ -84,37 +84,6 @@ export function createInterviewSessionRouter(service: SessionService) {
       return res.status(401).json({ message: error instanceof Error ? error.message : 'Unauthorized.' });
   }));
 
-  router.get('/api/interview-sessions/:sessionId/readiness', asyncHandler(async (req, res) => {
-      const token = getBearerToken(req.header('authorization'));
-      if (!token) return res.status(401).json({ message: 'Missing session token.' });
-
-      const sessionId = getSingleParam(req.params.sessionId);
-      // Validate token belongs to session (reuse safe context, just check auth)
-      await service.getSafeContext(sessionId, token);
-
-      const voiceProvider = process.env.VOICE_AGENT_PROVIDER ?? 'browser';
-      const transport = process.env.VOICE_TRANSPORT ?? 'websocket';
-      const ttsProvider = process.env.TTS_PROVIDER ?? 'browser_speech';
-      const sttProvider =
-        voiceProvider === 'pipecat'
-          ? process.env.STT_PROVIDER ?? 'whisper'
-          : 'browser';
-
-      return res.json({
-        sessionId,
-        voiceProvider,
-        transport,
-        requiresMic: true,
-        requiresCamera: false,
-        ttsProvider,
-        sttProvider,
-        serverTime: new Date().toISOString(),
-        status: 'ready',
-      });
-  }, (error, res) => {
-      return res.status(getErrorStatus(error, 401)).json({ message: getErrorMessage(error, 'Unauthorized.') });
-  }));
-
   router.get('/api/interview-sessions/:sessionId/report', asyncHandler(async (req, res) => {
       const token = getBearerToken(req.header('authorization'));
       if (!token) return res.status(401).json({ message: 'Missing session token.' });

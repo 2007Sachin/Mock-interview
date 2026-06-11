@@ -151,8 +151,8 @@ Two Railway services are needed: one for the Node + React bundle (repo root) and
 ### Service 1 — Node + React (repo root)
 
 - **Root directory:** `/` (repo root)
-- **Build command:** `npm run build && npm run build:server`
-- **Start command:** `node dist-server/index.js`
+- **Build command:** `npm run build`
+- **Start command:** `node dist/server/index.js`
 
 **Environment variables:**
 
@@ -162,7 +162,6 @@ PORT=<railway injects this>
 MOCK_INTERVIEW_PUBLIC_URL=https://<your-railway-app-url>
 MOCK_INTERVIEW_SERVICE_SECRET=<generate a secure random string>
 MOCK_INTERVIEW_CALLBACK_SECRET=<generate a secure random string>
-SESSION_TOKEN_SECRET=<generate a secure random string>
 PIPECAT_SERVICE_URL=https://<your-python-railway-service-url>
 PIPECAT_CONNECT_SECRET=<shared secret — must match voice agent service>
 VOICE_TRANSPORT=websocket
@@ -299,16 +298,30 @@ stage is slow when testing locally.
 - `turn:final-transcript→assistant-emitted` — total server-side turn time from
   receiving the final transcript to emitting the assistant's reply.
 
+**Node server logs** — report generation, prefixed with `[report-timing]`:
+
+| Log line | What it measures |
+| --- | --- |
+| `report:reads` | Parallel store reads (session, answers, turns, transcript events, brief) |
+| `report:generate` | Report scoring (Groq call, or heuristic fallback) |
+| `report:total` | Full `/complete` handler: reads + scoring + persistence + callback |
+
+The structured `Interview report generated.` / `Falling back to heuristic
+scoring.` logs also carry a `durationMs` field for the Groq attempt.
+
 How to read them: if `tts:queue→first-audio` dominates, the TTS engine is slow
 to start (Kokoro model load / browser voice). If `llm:*` dominates, the lag is
 the LLM provider or network. If `stt:*` values are large, the browser speech
 engine is slow to finalize — that part is runtime/browser dependent, not code.
+If `report:generate` dominates `report:total`, the wrap-up→report wait is the
+LLM; the UI already navigates to the report page after a fixed 2s wrap-up and
+shows a generating state until the report promise settles.
 
 ## Verification Commands
 
 ```bash
 npm run lint
-npm run build:server
+npm run build
 node --import tsx --test test/report-generation.test.ts
 python -m compileall services/voice-agent/app
 ```

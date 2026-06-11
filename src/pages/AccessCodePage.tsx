@@ -26,11 +26,11 @@ export function AccessCodePage() {
   };
 
   return (
-    <div className="mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-16">
-      <div className="mb-8 space-y-3">
-        <p className="text-sm uppercase tracking-[0.4em] text-emerald-200">Pathwisse Mock Interview</p>
-        <h1 className="text-5xl font-bold text-white">Enter Access Code</h1>
-        <p className="text-slate-300">
+    <div className="page-enter mx-auto flex min-h-screen max-w-2xl flex-col justify-center px-6 py-16">
+      <div className="stagger-children mb-8 space-y-3">
+        <p className="text-sm uppercase tracking-[0.4em] text-accent">Pathwisse Mock Interview</p>
+        <h1 className="text-5xl font-bold text-ink">Enter Access Code</h1>
+        <p className="text-ink-secondary">
           Your interview payload stays server-side. Use the access code from the LMS modal to unlock this session.
         </p>
       </div>

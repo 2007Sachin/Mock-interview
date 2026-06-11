@@ -33,7 +33,7 @@ class BrowserTranscriptSTTAdapter:
 
         if message.type == "audio_chunk":
             raise STTAdapterError(
-                "Audio streaming STT is not available in Phase 6 local mode. Send browser transcript events instead."
+                "Audio streaming STT is not available. Send browser transcript events instead."
             )
 
         text = (message.text or "").strip()

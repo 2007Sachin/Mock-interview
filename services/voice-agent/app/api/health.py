@@ -5,4 +5,4 @@ router = APIRouter()
 
 @router.get("/health")
 async def health():
-    return {"success": True, "data": {"service": "lumina-voice-agent-service", "status": "ok"}}
+    return {"success": True, "data": {"service": "pathwisse-voice-agent", "status": "ok"}}

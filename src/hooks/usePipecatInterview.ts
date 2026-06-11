@@ -1,17 +1,15 @@
 import { useEffect, useRef, useState } from 'react';
-import { PipecatClient, type BotOutputData, type MediaState, type TranscriptData } from '@pipecat-ai/client-js';
-import { DailyTransport } from '@pipecat-ai/daily-transport';
+import type { BotOutputData, MediaState, PipecatClient, TranscriptData } from '@pipecat-ai/client-js';
 import { useKokoroTts } from '@/hooks/useKokoroTts';
 import { env } from '@/lib/env';
 import { ApiRequestError, connectInterviewVoice } from '@/lib/mockInterviewApi';
 import { formatSessionStorageKey } from '@/lib/signature';
+import { logTiming } from '@/lib/voiceTiming';
 import type {
-  DailyInterviewVoiceConnectPayload,
   InterviewProviderMetadata,
   PipecatBrowserEvent,
   PipecatConnectionStatus,
   PipecatTransportType,
-  WebsocketInterviewVoiceConnectPayload,
 } from '@/types/interview';
 
 const PROVIDER_PLACEHOLDERS: InterviewProviderMetadata = {
@@ -29,11 +27,6 @@ type UsePipecatInterviewOptions = {
   currentQuestion: string;
   onSubmitAnswer: (transcript: string) => Promise<void>;
 };
-
-/** Lightweight latency instrumentation. See README "Voice latency timings". */
-function logTiming(stage: string, startedAt: number) {
-  console.info(`[voice-timing] ${stage}: ${Math.round(performance.now() - startedAt)}ms`);
-}
 
 function getErrorMessage(error: unknown) {
   if (error instanceof Error && error.message.trim()) {
@@ -297,12 +290,19 @@ export function usePipecatInterview({
     }
   };
 
-  const ensureClient = () => {
+  // The Pipecat client SDK and Daily transport are only needed for the Daily
+  // path, so they are loaded on demand to keep them out of the initial bundle.
+  const ensureClient = async () => {
     if (clientRef.current) {
       return clientRef.current;
     }
 
-    const client = new PipecatClient({
+    const [{ PipecatClient: PipecatClientCtor }, { DailyTransport }] = await Promise.all([
+      import('@pipecat-ai/client-js'),
+      import('@pipecat-ai/daily-transport'),
+    ]);
+
+    const client = new PipecatClientCtor({
       transport: new DailyTransport(),
       enableMic: true,
       enableCam: false,
@@ -383,7 +383,7 @@ export function usePipecatInterview({
     return client;
   };
 
-  const connectWebsocketTransport = async (voiceConnect: WebsocketInterviewVoiceConnectPayload) => {
+  const connectWebsocketTransport = async (voiceConnect: { pipecatConnectUrl: string; voiceToken: string }) => {
     if (websocketRef.current?.readyState === WebSocket.OPEN) {
       setConnectionStatus('connected');
       return;
@@ -454,19 +454,18 @@ export function usePipecatInterview({
       setResolvedStage(voiceConnect.currentStage ?? currentStage);
       setResolvedQuestion(voiceConnect.currentQuestion ?? currentQuestion);
       if (voiceConnect.transport === 'daily') {
-        const client = ensureClient();
-        const dailyVoiceConnect = voiceConnect as DailyInterviewVoiceConnectPayload;
-        if (dailyVoiceConnect.setupError) {
-          throw new Error(dailyVoiceConnect.setupError);
+        if (voiceConnect.setupError) {
+          throw new Error(voiceConnect.setupError);
         }
-        if (!dailyVoiceConnect.connectParams) {
+        if (!voiceConnect.connectParams) {
           throw new Error('Daily transport is configured, but the connect payload is unavailable.');
         }
 
+        const client = await ensureClient();
         await client.initDevices();
         setMicPermissionStatus(getMicPermissionStatus(client.mediaState));
         await client.connect(
-          dailyVoiceConnect.connectParams as NonNullable<Parameters<PipecatClient['connect']>[0]>,
+          voiceConnect.connectParams as NonNullable<Parameters<PipecatClient['connect']>[0]>,
         );
         logTiming('voice:connect', connectStartedAt);
         return;

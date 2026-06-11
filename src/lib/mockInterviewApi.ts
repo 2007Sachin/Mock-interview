@@ -142,38 +142,57 @@ export function connectInterviewVoice(sessionId: string, sessionToken: string) {
   });
 }
 
-export async function createInterviewBrief(input: BriefCreateInput): Promise<BriefCreateResponse> {
-  const secret = env.serviceSecret;
-
+export function createInterviewBrief(input: BriefCreateInput): Promise<BriefCreateResponse> {
   if (input.mode === 'capstone') {
     const formData = new FormData();
     formData.append('mode', 'capstone');
     formData.append('pdf', input.pdf);
 
-    const response = await fetch(`${apiBaseUrl}/api/interview-briefs`, {
+    // No content-type header: the browser sets the multipart boundary itself.
+    return request<BriefCreateResponse>('/api/interview-briefs', {
       method: 'POST',
-      headers: { 'x-service-secret': secret },
+      headers: { 'x-service-secret': env.serviceSecret },
       body: formData,
     });
-
-    const rawBody = await response.text();
-    let payload: unknown = null;
-    try { payload = JSON.parse(rawBody); } catch { /* empty */ }
-
-    if (!response.ok) {
-      const message =
-        typeof payload === 'object' && payload !== null && 'message' in payload && typeof (payload as Record<string, unknown>).message === 'string'
-          ? (payload as Record<string, unknown>).message as string
-          : 'Failed to create capstone session.';
-      throw new ApiRequestError(message, response.status, '/api/interview-briefs');
-    }
-
-    return payload as BriefCreateResponse;
   }
 
   return request<BriefCreateResponse>('/api/interview-briefs', {
     method: 'POST',
-    headers: { 'content-type': 'application/json', 'x-service-secret': secret },
+    headers: { 'content-type': 'application/json', 'x-service-secret': env.serviceSecret },
     body: JSON.stringify(input),
   });
+}
+
+// ---------------------------------------------------------------------------
+// Pending report handoff
+// ---------------------------------------------------------------------------
+// The wrap-up screen kicks off report generation and navigates to the report
+// page without waiting for it. The promise is parked here (settled entries
+// included, so a remount reuses the result without refetching); the report
+// page attaches its own handlers and shows a generating state until it
+// settles. On a hard refresh the cache is empty and the page falls back to
+// GET /report.
+
+const pendingReports = new Map<string, Promise<InterviewReport>>();
+
+function trackInterviewCompletion(sessionId: string, sessionToken: string): Promise<InterviewReport> {
+  const pending = completeInterview(sessionId, sessionToken);
+  // Callers may not await this (the wrap-up screen never does); swallow to
+  // avoid an unhandled rejection. The report page attaches real handlers.
+  pending.catch(() => undefined);
+  pendingReports.set(sessionId, pending);
+  return pending;
+}
+
+export function startInterviewCompletion(sessionId: string, sessionToken: string): Promise<InterviewReport> {
+  return pendingReports.get(sessionId) ?? trackInterviewCompletion(sessionId, sessionToken);
+}
+
+/** Re-runs completion after a failure, replacing the cached promise. */
+export function retryInterviewCompletion(sessionId: string, sessionToken: string): Promise<InterviewReport> {
+  return trackInterviewCompletion(sessionId, sessionToken);
+}
+
+export function takePendingReport(sessionId: string): Promise<InterviewReport> | null {
+  return pendingReports.get(sessionId) ?? null;
 }

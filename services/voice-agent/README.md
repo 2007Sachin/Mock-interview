@@ -22,8 +22,9 @@ Node remains the authority for:
 ## Architecture Notes
 
 - Transport source of truth: `VOICE_TRANSPORT=websocket|daily`
+- STT runs in the student's browser (Web Speech API); the browser sends transcript text over the websocket.
 - Kokoro is browser-only. Python emits `assistant_text` events; it does not do primary server-side TTS playback.
-- Mistral stays server-side and is used here only for live interview orchestration, not for the authoritative final report.
+- Groq stays server-side and is used here only for live interview orchestration, not for the authoritative final report.
 - Private resume and JD context stay inside Node and this service only.
 
 ## Environment
@@ -39,13 +40,11 @@ Required local websocket settings:
 - `NODE_API_BASE_URL=http://localhost:4174`
 - `PIPECAT_CONNECT_SECRET=dev-pipecat-secret`
 - `VOICE_TRANSPORT=websocket`
-- `STT_PROVIDER=whisper` or `openai_realtime`
-- `WHISPER_MODEL=base`
-- `LLM_PROVIDER=mistral`
-- `MISTRAL_API_KEY=...`
-- `MISTRAL_LLM_MODEL=mistral-small-latest`
-- `MISTRAL_TEMPERATURE=0.4`
-- `MISTRAL_MAX_TOKENS=700`
+- `LLM_PROVIDER=groq`
+- `GROQ_API_KEY=...` (leave blank to use the built-in fallback question generator)
+- `GROQ_MODEL=llama-3.1-8b-instant`
+- `GROQ_TEMPERATURE=0.4`
+- `GROQ_MAX_TOKENS=700`
 - `TTS_PROVIDER=kokoro_browser`
 - `PORT=7860`
 
@@ -156,16 +155,11 @@ PIPECAT_CONNECT_SECRET=<same-secret-as-node-service>
 
 VOICE_TRANSPORT=websocket
 
-STT_PROVIDER=whisper
-WHISPER_MODEL=base
-OPENAI_API_KEY=
-OPENAI_STT_MODEL=gpt-4o-transcribe
-
-LLM_PROVIDER=mistral
-MISTRAL_API_KEY=
-MISTRAL_LLM_MODEL=mistral-small-latest
-MISTRAL_TEMPERATURE=0.4
-MISTRAL_MAX_TOKENS=700
+LLM_PROVIDER=groq
+GROQ_API_KEY=
+GROQ_MODEL=llama-3.1-8b-instant
+GROQ_TEMPERATURE=0.4
+GROQ_MAX_TOKENS=700
 
 TTS_PROVIDER=kokoro_browser
 PORT=${{PORT}}
@@ -187,7 +181,7 @@ GET https://<voice-agent-railway-domain>/health
 Expected response:
 
 ```json
-{ "success": true, "data": { "service": "lumina-voice-agent-service", "status": "ok" } }
+{ "success": true, "data": { "service": "pathwisse-voice-agent", "status": "ok" } }
 ```
 
 ### Node/React service env (update after voice-agent is deployed)
@@ -195,7 +189,6 @@ Expected response:
 ```env
 PIPECAT_SERVICE_URL=https://<voice-agent-railway-domain>
 PIPECAT_CONNECT_SECRET=<same-secret>
-VOICE_AGENT_PROVIDER=pipecat
 VOICE_TRANSPORT=websocket
 VITE_VOICE_AGENT_PROVIDER=pipecat
 VITE_TTS_PROVIDER=kokoro

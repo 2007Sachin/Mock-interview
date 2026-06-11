@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react';
+import { buttonStyles } from '@/components/VoiceCallUI';
 import { useDeviceReadiness } from '@/hooks/useDeviceReadiness';
 import { env } from '@/lib/env';
 import { INTERVIEWER_NAME } from '@/lib/interviewer';
@@ -8,7 +9,7 @@ type StepStatus = 'pending' | 'pass' | 'fail' | 'skipped';
 function StepIcon({ status }: { status: StepStatus }) {
   if (status === 'pass') {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-emerald-400/20 text-emerald-300">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-accent/20 text-accent-strong">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M2 7l3.5 3.5L12 3.5" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round" />
         </svg>
@@ -18,7 +19,7 @@ function StepIcon({ status }: { status: StepStatus }) {
 
   if (status === 'fail') {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-rose-400/20 text-rose-300">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-danger/20 text-danger">
         <svg width="14" height="14" viewBox="0 0 14 14" fill="none">
           <path d="M3 3l8 8M11 3l-8 8" stroke="currentColor" strokeWidth="2" strokeLinecap="round" />
         </svg>
@@ -28,14 +29,14 @@ function StepIcon({ status }: { status: StepStatus }) {
 
   if (status === 'skipped') {
     return (
-      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-amber-400/20 text-amber-300 text-xs font-bold">
+      <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full bg-warning/20 text-xs font-bold text-warning">
         ~
       </span>
     );
   }
 
   return (
-    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-white/20 text-slate-400 text-xs">
+    <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-edge/40 text-xs text-ink-secondary">
       •
     </span>
   );
@@ -44,14 +45,14 @@ function StepIcon({ status }: { status: StepStatus }) {
 function MicLevelMeter({ level }: { level: number }) {
   const bars = 12;
   return (
-    <div className="flex items-end gap-0.5 h-8">
+    <div className="flex h-8 items-end gap-0.5">
       {Array.from({ length: bars }, (_, i) => {
         const threshold = ((i + 1) / bars) * 100;
         const active = level >= threshold;
         return (
           <div
             key={i}
-            className={`w-2 rounded-sm transition-all duration-75 ${active ? 'bg-emerald-400' : 'bg-white/10'}`}
+            className={`w-2 rounded-sm transition-colors duration-75 ${active ? 'bg-accent' : 'bg-surface-raised'}`}
             style={{ height: `${30 + i * 3}%` }}
           />
         );
@@ -77,9 +78,7 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
     : device.errors.camera
       ? 'skipped'
       : 'pending';
-  const speakerStatus: StepStatus = device.speakerTestPassed
-    ? 'pass'
-    : 'pending';
+  const speakerStatus: StepStatus = device.speakerTestPassed ? 'pass' : 'pending';
 
   const isServiceStep =
     device.state === 'speaker_test_passed' ||
@@ -104,7 +103,7 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
     device.state === 'ready';
 
   return (
-    <div className="mx-auto max-w-xl space-y-8 px-4 py-10">
+    <div className="stagger-children mx-auto max-w-xl space-y-8 px-4 py-10">
       <div className="space-y-1">
         <p className="text-xs uppercase tracking-[0.4em] text-accent">Joining your interview</p>
         <h2 className="text-2xl font-bold text-ink">Let's get your mic and speakers ready</h2>
@@ -117,46 +116,46 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
 
       <div className="space-y-3">
         {/* Step 1 — Microphone + Camera */}
-        <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-4">
+        <div className="space-y-4 rounded-2xl border border-edge/30 bg-surface p-5">
           <div className="flex items-center gap-3">
             <StepIcon status={micStatus} />
             <div className="flex-1">
-              <p className="font-medium text-white text-sm">Microphone</p>
+              <p className="text-sm font-medium text-ink">Microphone</p>
               {device.micAllowed && (
-                <p className="text-xs text-emerald-300 mt-0.5">Granted — speak to test your mic level</p>
+                <p className="mt-0.5 text-xs text-accent-strong">Granted — speak to test your mic level</p>
               )}
             </div>
             <div className="flex items-center gap-3">
               <StepIcon status={cameraStatus} />
-              <p className="text-sm text-slate-300">Camera</p>
+              <p className="text-sm text-ink-secondary">Camera</p>
             </div>
           </div>
 
           {device.micAllowed && (
             <div className="space-y-2">
-              <p className="text-xs text-slate-400 uppercase tracking-wider">Mic level</p>
+              <p className="text-xs uppercase tracking-wider text-ink-secondary">Mic level</p>
               <MicLevelMeter level={device.micLevel} />
             </div>
           )}
 
           {device.cameraStream && (
             <div className="space-y-2">
-              <p className="text-xs text-slate-400 uppercase tracking-wider">Camera preview</p>
+              <p className="text-xs uppercase tracking-wider text-ink-secondary">Camera preview</p>
               <video
                 ref={videoRef}
                 autoPlay
                 muted
                 playsInline
-                className="w-full rounded-xl aspect-video bg-black object-cover border border-white/10"
+                className="aspect-video w-full rounded-xl border border-edge/30 bg-black object-cover"
               />
             </div>
           )}
 
           {device.errors.mic && (
-            <div className="rounded-xl border border-rose-300/30 bg-rose-300/10 px-4 py-3 text-sm text-rose-100 space-y-1">
+            <div className="space-y-1 rounded-xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger">
               <p className="font-semibold">Microphone access denied</p>
               <p>{device.errors.mic}</p>
-              <p className="text-xs text-rose-200 mt-1">
+              <p className="mt-1 text-xs text-danger/80">
                 In Chrome: click the lock icon in the address bar → Site settings → Microphone → Allow.
                 <br />
                 In Firefox: click the camera/mic icon in the address bar → Allow.
@@ -167,7 +166,7 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
           )}
 
           {device.errors.camera && !device.errors.mic && (
-            <div className="rounded-xl border border-amber-300/30 bg-amber-300/10 px-4 py-3 text-sm text-amber-100">
+            <div className="rounded-xl border border-warning/30 bg-warning/10 px-4 py-3 text-sm text-warning">
               <p className="font-semibold">Camera access denied</p>
               <p>{device.errors.camera}</p>
             </div>
@@ -180,7 +179,7 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
                 void device.requestPermissions();
               }}
               disabled={device.state === 'requesting_permissions'}
-              className="w-full rounded-2xl bg-emerald-400 px-4 py-3 text-sm font-semibold text-slate-950 disabled:opacity-60"
+              className={`w-full py-3 ${buttonStyles.primary}`}
             >
               {device.state === 'requesting_permissions'
                 ? 'Requesting access…'
@@ -195,13 +194,13 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
         {(device.state !== 'idle' &&
           device.state !== 'requesting_permissions' &&
           !device.errors.mic) && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-3">
+          <div className="space-y-3 rounded-2xl border border-edge/30 bg-surface p-5">
             <div className="flex items-center gap-3">
               <StepIcon status={speakerStatus} />
               <div className="flex-1">
-                <p className="font-medium text-white text-sm">Speaker / Headphones</p>
+                <p className="text-sm font-medium text-ink">Speaker / Headphones</p>
                 {device.speakerTestPassed && (
-                  <p className="text-xs text-emerald-300 mt-0.5">Test passed</p>
+                  <p className="mt-0.5 text-xs text-accent-strong">Test passed</p>
                 )}
               </div>
             </div>
@@ -212,7 +211,7 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
                 onClick={() => {
                   void device.runSpeakerTest();
                 }}
-                className="w-full rounded-2xl border border-white/20 px-4 py-3 text-sm font-medium text-white hover:bg-white/10"
+                className={`w-full justify-center py-3 ${buttonStyles.secondary}`}
               >
                 Play speaker test tone
               </button>
@@ -222,12 +221,12 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
 
         {/* Step 3 — Service readiness */}
         {(device.speakerTestPassed || device.state === 'ready') && (
-          <div className="rounded-2xl border border-white/10 bg-white/5 p-5 space-y-2">
+          <div className="space-y-2 rounded-2xl border border-edge/30 bg-surface p-5">
             <div className="flex items-center gap-3">
               <StepIcon status={serviceStatus} />
               <div>
-                <p className="font-medium text-white text-sm">Voice service</p>
-                <p className="text-xs text-slate-400 mt-0.5">
+                <p className="text-sm font-medium text-ink">Voice service</p>
+                <p className="mt-0.5 text-xs text-ink-secondary">
                   {env.voiceAgentProvider === 'pipecat'
                     ? 'Pipecat mode — connection will be established when you start'
                     : 'Browser fallback mode ready'}
@@ -247,27 +246,27 @@ export function InterviewOnboarding({ onComplete }: { onComplete: () => void }) 
             device.markReady();
             onComplete();
           }}
-          className="w-full rounded-[2rem] bg-accent px-6 py-4 text-base font-semibold text-accent-contrast transition-colors hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
+          className="btn-press w-full rounded-[2rem] bg-accent px-6 py-4 text-base font-semibold text-accent-contrast hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40"
         >
           Continue — meet your interviewer
         </button>
 
         {!device.micAllowed && device.state !== 'idle' && device.state !== 'requesting_permissions' && (
-          <p className="text-center text-xs text-slate-400">
+          <p className="text-center text-xs text-ink-secondary">
             Microphone access is required to start the interview.
           </p>
         )}
 
         {device.micAllowed && !device.speakerTestPassed && (
-          <p className="text-center text-xs text-slate-400">
+          <p className="text-center text-xs text-ink-secondary">
             Please complete the speaker test above to continue.
           </p>
         )}
       </div>
 
-      {/* Debug / fallback note for development */}
+      {/* Fallback note for development */}
       {env.voiceAgentProvider === 'browser' && (
-        <p className="text-center text-xs text-slate-500">
+        <p className="text-center text-xs text-ink-muted">
           Running in browser fallback mode. Production uses Pipecat + Groq + Kokoro.
         </p>
       )}

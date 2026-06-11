@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
+import { logTiming } from '@/lib/voiceTiming';
 
-export type VoiceAgentStatus = 'idle' | 'speaking' | 'listening' | 'processing';
+type VoiceAgentStatus = 'idle' | 'speaking' | 'listening' | 'processing';
 
 type VoiceAgentArgs = {
   question: string;
@@ -34,11 +35,6 @@ function getRecognitionConstructor() {
   return window.SpeechRecognition ?? window.webkitSpeechRecognition;
 }
 
-/** Lightweight latency instrumentation. See README "Voice latency timings". */
-function logTiming(stage: string, startedAt: number) {
-  console.info(`[voice-timing] ${stage}: ${Math.round(performance.now() - startedAt)}ms`);
-}
-
 /**
  * Browser-native voice loop: speaks the current question with speechSynthesis,
  * then listens with SpeechRecognition until the student submits the answer.
@@ -58,6 +54,7 @@ export function useVoiceAgent({ question, onSubmit }: VoiceAgentArgs) {
   const statusRef = useRef<VoiceAgentStatus>('idle');
   const isMutedRef = useRef(false);
   const transcriptRef = useRef('');
+  const interimTranscriptRef = useRef('');
   const sttStartRef = useRef(0);
   const gotFirstResultRef = useRef(false);
   // Transcript captured by earlier recognition runs (the engine restarts after
@@ -67,6 +64,7 @@ export function useVoiceAgent({ question, onSubmit }: VoiceAgentArgs) {
   statusRef.current = status;
   isMutedRef.current = isMuted;
   transcriptRef.current = transcript;
+  interimTranscriptRef.current = interimTranscript;
 
   const stopRecognition = useCallback(() => {
     shouldListenRef.current = false;
@@ -211,7 +209,8 @@ export function useVoiceAgent({ question, onSubmit }: VoiceAgentArgs) {
   }, [startRecognition, stopRecognition]);
 
   const submitAnswer = useCallback(async () => {
-    const answer = `${transcriptRef.current} ${interimTranscript}`.trim() || transcriptRef.current.trim();
+    const answer =
+      `${transcriptRef.current} ${interimTranscriptRef.current}`.trim() || transcriptRef.current.trim();
     if (!answer || statusRef.current === 'processing') return;
 
     stopRecognition();
@@ -231,16 +230,14 @@ export function useVoiceAgent({ question, onSubmit }: VoiceAgentArgs) {
       return;
     }
     setStatus('idle');
-  }, [interimTranscript, onSubmit, startRecognition, stopRecognition]);
+  }, [onSubmit, startRecognition, stopRecognition]);
 
   return {
-    status,
     isSpeaking: status === 'speaking',
     isListening: status === 'listening',
     isProcessing: status === 'processing',
     transcript,
     interimTranscript,
-    setTranscript,
     isMuted,
     toggleMute,
     speakQuestion,

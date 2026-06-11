@@ -1,5 +1,6 @@
 import { useCallback, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { buttonStyles } from '@/components/VoiceCallUI';
 import { createInterviewBrief, verifyInterviewSession } from '@/lib/mockInterviewApi';
 import { formatSessionStorageKey } from '@/lib/signature';
 import type { InterviewMode, SkillLevel } from '@/types/interview';
@@ -84,17 +85,15 @@ function ModeCard({
     <button
       type="button"
       onClick={onSelect}
-      className={`rounded-[2rem] border p-6 text-left transition-all ${
+      className={`btn-press rounded-[2rem] border p-6 text-left ${
         selected
-          ? 'border-emerald-400 bg-emerald-400/10 ring-1 ring-emerald-400/40'
-          : 'border-white/10 bg-white/5 hover:border-white/20 hover:bg-white/8'
+          ? 'border-accent bg-accent/10 ring-1 ring-accent/40'
+          : 'border-edge/30 bg-surface hover:border-edge/50 hover:bg-surface-raised/60'
       }`}
     >
-      <span className={selected ? 'text-emerald-300' : 'text-slate-400'}>{mode.icon}</span>
-      <p className={`mt-3 font-semibold ${selected ? 'text-white' : 'text-slate-200'}`}>
-        {mode.label}
-      </p>
-      <p className="mt-1 text-sm text-slate-400 leading-relaxed">{mode.description}</p>
+      <span className={selected ? 'text-accent-strong' : 'text-ink-secondary'}>{mode.icon}</span>
+      <p className="mt-3 font-semibold text-ink">{mode.label}</p>
+      <p className="mt-1 text-sm leading-relaxed text-ink-secondary">{mode.description}</p>
     </button>
   );
 }
@@ -133,12 +132,12 @@ function PdfDropZone({
       onDragLeave={() => setDragging(false)}
       onDrop={handleDrop}
       onClick={() => !disabled && inputRef.current?.click()}
-      className={`cursor-pointer rounded-[2rem] border-2 border-dashed p-10 text-center transition-all ${
+      className={`cursor-pointer rounded-[2rem] border-2 border-dashed p-10 text-center transition-colors ${
         dragging
-          ? 'border-emerald-400 bg-emerald-400/10'
+          ? 'border-accent bg-accent/10'
           : file
-            ? 'border-emerald-300/60 bg-emerald-300/5'
-            : 'border-white/20 bg-white/3 hover:border-white/30'
+            ? 'border-accent/60 bg-accent/5'
+            : 'border-edge/40 bg-surface hover:border-edge/60'
       } ${disabled ? 'cursor-not-allowed opacity-60' : ''}`}
     >
       <input
@@ -155,19 +154,19 @@ function PdfDropZone({
 
       {file ? (
         <div className="space-y-2">
-          <p className="text-emerald-300 font-medium">{file.name}</p>
-          <p className="text-xs text-slate-400">{(file.size / 1024).toFixed(0)} KB · Click to change</p>
+          <p className="font-medium text-accent-strong">{file.name}</p>
+          <p className="text-xs text-ink-secondary">{(file.size / 1024).toFixed(0)} KB · Click to change</p>
         </div>
       ) : (
         <div className="space-y-3">
-          <span className="inline-block text-slate-400">
+          <span className="inline-block text-ink-secondary">
             <IconUpload />
           </span>
           <div className="space-y-1">
-            <p className="text-slate-200 font-medium">
+            <p className="font-medium text-ink">
               {dragging ? 'Drop your PDF here' : 'Drag your project PDF here'}
             </p>
-            <p className="text-sm text-slate-400">or click to browse — PDF up to 10 MB</p>
+            <p className="text-sm text-ink-secondary">or click to browse — PDF up to 10 MB</p>
           </div>
         </div>
       )}
@@ -178,6 +177,9 @@ function PdfDropZone({
 // ---------------------------------------------------------------------------
 // Main page
 // ---------------------------------------------------------------------------
+
+const inputStyles =
+  'w-full rounded-2xl border border-edge/40 bg-canvas px-4 py-3 text-sm text-ink outline-none placeholder:text-ink-muted focus:border-accent/50';
 
 export function StartPage() {
   const navigate = useNavigate();
@@ -248,18 +250,18 @@ export function StartPage() {
   };
 
   return (
-    <div className="mx-auto min-h-screen max-w-2xl px-6 py-16">
+    <div className="page-enter mx-auto min-h-screen max-w-2xl px-6 py-16">
       {/* Header */}
-      <div className="mb-10 space-y-3">
-        <p className="text-sm uppercase tracking-[0.4em] text-emerald-200">Pathwisse</p>
-        <h1 className="text-5xl font-bold text-white">Mock Interview</h1>
-        <p className="text-slate-300 leading-relaxed">
+      <div className="stagger-children mb-10 space-y-3">
+        <p className="text-sm uppercase tracking-[0.4em] text-accent">Pathwisse</p>
+        <h1 className="text-5xl font-bold text-ink">Mock Interview</h1>
+        <p className="leading-relaxed text-ink-secondary">
           Choose your interview type, fill in the details, and start a live spoken interview.
         </p>
       </div>
 
       {/* Mode selector */}
-      <div className="mb-8 grid gap-4 sm:grid-cols-3">
+      <div className="stagger-children mb-8 grid gap-4 sm:grid-cols-3">
         {MODES.map((mode) => (
           <ModeCard
             key={mode.id}
@@ -272,60 +274,60 @@ export function StartPage() {
 
       {/* Mode-specific inputs */}
       {selectedMode === 'resume' && (
-        <div className="space-y-5 rounded-[2rem] border border-white/10 bg-white/5 p-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-200">Role details</p>
+        <div key="resume" className="qswap-enter space-y-5 rounded-[2rem] border border-edge/30 bg-surface p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-accent">Role details</p>
 
           <div className="grid gap-4 sm:grid-cols-2">
             <div className="space-y-1.5">
-              <label className="text-xs uppercase tracking-wider text-slate-400">Job title *</label>
+              <label className="text-xs uppercase tracking-wider text-ink-secondary">Job title *</label>
               <input
                 type="text"
                 value={jobTitle}
                 onChange={(e) => setJobTitle(e.target.value)}
                 placeholder="e.g. Senior Frontend Engineer"
-                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-400/60"
+                className={inputStyles}
               />
             </div>
             <div className="space-y-1.5">
-              <label className="text-xs uppercase tracking-wider text-slate-400">Company</label>
+              <label className="text-xs uppercase tracking-wider text-ink-secondary">Company</label>
               <input
                 type="text"
                 value={company}
                 onChange={(e) => setCompany(e.target.value)}
                 placeholder="e.g. Pathwisse"
-                className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-400/60"
+                className={inputStyles}
               />
             </div>
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs uppercase tracking-wider text-slate-400">Job description *</label>
+            <label className="text-xs uppercase tracking-wider text-ink-secondary">Job description *</label>
             <textarea
               value={jobDescription}
               onChange={(e) => setJobDescription(e.target.value)}
               rows={5}
               placeholder="Paste the job description here…"
-              className="w-full resize-none rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-400/60"
+              className={`resize-none ${inputStyles}`}
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs uppercase tracking-wider text-slate-400">Your resume *</label>
+            <label className="text-xs uppercase tracking-wider text-ink-secondary">Your resume *</label>
             <textarea
               value={resumeText}
               onChange={(e) => setResumeText(e.target.value)}
               rows={7}
               placeholder="Paste your resume text here…"
-              className="w-full resize-none rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-400/60"
+              className={`resize-none ${inputStyles}`}
             />
           </div>
         </div>
       )}
 
       {selectedMode === 'capstone' && (
-        <div className="space-y-5 rounded-[2rem] border border-white/10 bg-white/5 p-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-200">Project PDF</p>
-          <p className="text-sm text-slate-400">
+        <div key="capstone" className="qswap-enter space-y-5 rounded-[2rem] border border-edge/30 bg-surface p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-accent">Project PDF</p>
+          <p className="text-sm text-ink-secondary">
             Upload your capstone project report or README. The interviewer will ask about your design decisions,
             implementation choices, and what you'd improve.
           </p>
@@ -334,26 +336,26 @@ export function StartPage() {
       )}
 
       {selectedMode === 'skill' && (
-        <div className="space-y-5 rounded-[2rem] border border-white/10 bg-white/5 p-6">
-          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-emerald-200">Skill details</p>
+        <div key="skill" className="qswap-enter space-y-5 rounded-[2rem] border border-edge/30 bg-surface p-6">
+          <p className="text-sm font-semibold uppercase tracking-[0.3em] text-accent">Skill details</p>
 
           <div className="space-y-1.5">
-            <label className="text-xs uppercase tracking-wider text-slate-400">Skill name *</label>
+            <label className="text-xs uppercase tracking-wider text-ink-secondary">Skill name *</label>
             <input
               type="text"
               value={skillName}
               onChange={(e) => setSkillName(e.target.value)}
               placeholder="e.g. React, System Design, PostgreSQL, Kubernetes…"
-              className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none placeholder:text-slate-600 focus:border-emerald-400/60"
+              className={inputStyles}
             />
           </div>
 
           <div className="space-y-1.5">
-            <label className="text-xs uppercase tracking-wider text-slate-400">Level</label>
+            <label className="text-xs uppercase tracking-wider text-ink-secondary">Level</label>
             <select
               value={skillLevel}
               onChange={(e) => setSkillLevel(e.target.value as SkillLevel)}
-              className="w-full rounded-2xl border border-white/10 bg-slate-950 px-4 py-3 text-sm text-slate-100 outline-none focus:border-emerald-400/60"
+              className={inputStyles}
             >
               <option value="beginner">Beginner</option>
               <option value="intermediate">Intermediate</option>
@@ -365,7 +367,7 @@ export function StartPage() {
 
       {/* Error */}
       {error && (
-        <p className="mt-5 rounded-2xl border border-rose-300/30 bg-rose-300/10 px-4 py-3 text-sm text-rose-100">
+        <p className="mt-5 rounded-2xl border border-danger/30 bg-danger/10 px-4 py-3 text-sm text-danger" role="alert">
           {error}
         </p>
       )}
@@ -377,7 +379,7 @@ export function StartPage() {
             type="button"
             onClick={() => { void handleSubmit(); }}
             disabled={!canSubmit}
-            className="w-full rounded-[2rem] bg-emerald-400 px-6 py-4 text-base font-semibold text-slate-950 disabled:opacity-40 disabled:cursor-not-allowed"
+            className={`btn-press w-full rounded-[2rem] bg-accent px-6 py-4 text-base font-semibold text-accent-contrast hover:bg-accent-strong disabled:cursor-not-allowed disabled:opacity-40`}
           >
             {loading ? (
               <span className="flex items-center justify-center gap-3">

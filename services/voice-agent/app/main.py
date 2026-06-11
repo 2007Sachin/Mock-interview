@@ -11,7 +11,7 @@ from app.api.sessions import router as sessions_router
 from app.core.config import settings
 
 app = FastAPI(
-    title="Lumina Voice Agent Service",
+    title="Pathwisse Voice Agent Service",
     description="Local websocket voice agent runtime for Pathwisse interview sessions.",
     version="0.6.0",
 )
