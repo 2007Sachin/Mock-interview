@@ -1,0 +1,243 @@
+/*
+ * Design tokens — light professional theme.
+ * Indigo primary, amber accent. Single source of truth for the palette.
+ */
+:root {
+  --c-canvas: #f6f7fb; /* page background */
+  --c-surface: #ffffff; /* cards */
+  --c-surface-muted: #eef0f7; /* nested / subtle surfaces */
+  --c-edge: #d7dbe7; /* borders */
+
+  --c-ink: #1d2433; /* primary text */
+  --c-ink-secondary: #4b5468;
+  --c-ink-muted: #7d869c;
+
+  --c-primary: #4f46e5; /* indigo: actions, focus */
+  --c-primary-strong: #4338ca;
+  --c-primary-soft: #e0e7ff;
+
+  --c-accent: #f59e0b; /* amber: highlights, recording */
+  --c-accent-soft: #fef3c7;
+
+  --c-danger: #dc2626;
+  --c-danger-soft: #fee2e2;
+  --c-success: #059669;
+
+  --radius: 12px;
+  --shadow: 0 1px 3px rgb(29 36 51 / 0.08), 0 4px 16px rgb(29 36 51 / 0.06);
+  --font: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  background: var(--c-canvas);
+  color: var(--c-ink);
+  font-family: var(--font);
+  line-height: 1.55;
+}
+
+:focus-visible {
+  outline: 2px solid var(--c-primary);
+  outline-offset: 2px;
+}
+
+/* ---------- Layout ---------- */
+
+.shell {
+  max-width: 760px;
+  margin: 0 auto;
+  padding: 32px 20px 64px;
+}
+
+.brand {
+  display: flex;
+  align-items: baseline;
+  gap: 10px;
+  margin-bottom: 28px;
+}
+
+.brand h1 {
+  font-size: 1.1rem;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.brand span {
+  color: var(--c-ink-muted);
+  font-size: 0.85rem;
+}
+
+.card {
+  background: var(--c-surface);
+  border: 1px solid var(--c-edge);
+  border-radius: var(--radius);
+  box-shadow: var(--shadow);
+  padding: 28px;
+}
+
+.card + .card {
+  margin-top: 16px;
+}
+
+h2 {
+  margin: 0 0 6px;
+  font-size: 1.35rem;
+  letter-spacing: -0.01em;
+}
+
+.subtle {
+  color: var(--c-ink-secondary);
+  margin: 0 0 20px;
+}
+
+.muted {
+  color: var(--c-ink-muted);
+  font-size: 0.9rem;
+}
+
+/* ---------- Forms & buttons ---------- */
+
+label.field {
+  display: block;
+  font-weight: 600;
+  font-size: 0.9rem;
+  margin-bottom: 16px;
+}
+
+input[type='text'],
+select {
+  display: block;
+  width: 100%;
+  margin-top: 6px;
+  padding: 10px 12px;
+  font: inherit;
+  color: inherit;
+  background: var(--c-surface);
+  border: 1px solid var(--c-edge);
+  border-radius: 8px;
+}
+
+input[type='file'] {
+  display: block;
+  margin-top: 6px;
+  font: inherit;
+}
+
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  padding: 10px 20px;
+  font: inherit;
+  font-weight: 600;
+  border-radius: 8px;
+  border: 1px solid transparent;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+
+.btn:disabled {
+  opacity: 0.55;
+  cursor: not-allowed;
+}
+
+.btn-primary {
+  background: var(--c-primary);
+  color: #fff;
+}
+
+.btn-primary:hover:not(:disabled) {
+  background: var(--c-primary-strong);
+}
+
+.btn-secondary {
+  background: var(--c-surface);
+  color: var(--c-ink);
+  border-color: var(--c-edge);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--c-surface-muted);
+}
+
+.btn-danger {
+  background: var(--c-danger);
+  color: #fff;
+}
+
+.btn-big {
+  padding: 16px 36px;
+  font-size: 1.05rem;
+  border-radius: 999px;
+}
+
+/* ---------- Interview room ---------- */
+
+.question-text {
+  font-size: 1.3rem;
+  font-weight: 600;
+  margin: 18px 0 26px;
+  min-height: 3em;
+}
+
+.room-controls {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 12px;
+}
+
+.recording-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--c-danger);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+.status-line {
+  margin-top: 18px;
+  font-size: 0.9rem;
+  color: var(--c-ink-secondary);
+}
+
+.transcript-box {
+  margin-top: 18px;
+  padding: 14px 16px;
+  background: var(--c-surface-muted);
+  border-radius: 8px;
+  font-size: 0.95rem;
+}
+
+.transcript-box strong {
+  display: block;
+  font-size: 0.78rem;
+  text-transform: uppercase;
+  letter-spacing: 0.06em;
+  color: var(--c-ink-muted);
+  margin-bottom: 4px;
+}
+
+.error-banner {
+  margin-top: 16px;
+  padding: 12px 16px;
+  background: var(--c-danger-soft);
+  color: var(--c-danger);
+  border-radius: 8px;
+  font-size: 0.92rem;
+}
