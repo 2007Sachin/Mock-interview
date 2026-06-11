@@ -92,3 +92,75 @@ Verify it locally:
 3. Check every section renders: overall score + readiness level, all four SWOT quadrants (each point should reference something you actually said), and one card per question with score, feedback, and "How to improve". Skipped questions show score 0.
 4. Click **Download / print report** and confirm the print preview is clean (no buttons, white background).
 5. Failure path: temporarily put a wrong `GROQ_API_KEY` in `.env`, restart the backend, complete a short interview, and confirm you get the "We hit a snag" screen instead of a dead end. Restore the real key, restart the backend, click **Retry evaluation**, and the report appears.
+
+### Stage 4 — production prep ✅
+
+What exists: a Supabase `SessionStore` behind the same interface (`STORAGE_BACKEND=supabase`), the Railway deploy guide below, and error handling across the app — failed audio uploads keep the clip and offer **Retry upload** (no re-recording), Groq failures return friendly retryable messages, mic denial points to **Type instead**, the report screen retries polling and offers **Retry evaluation**, and the server returns JSON errors even for malformed/oversized uploads. No flow dead-ends.
+
+Verify it locally:
+
+1. `STORAGE_BACKEND=file` (default) still works: run a short interview, see the JSON file in `v2/server/data/sessions/`.
+2. Error paths: stop the backend mid-interview and submit an answer — you get an error banner with **Retry upload**; restart the backend, click it, and the interview continues with the same recording.
+3. Supabase (optional, needs a free project): create the `sessions` table with the SQL below, set `STORAGE_BACKEND=supabase`, `SUPABASE_URL`, and `SUPABASE_SERVICE_ROLE_KEY` in `.env`, restart, run a short interview, and see the row appear in the Supabase table editor.
+4. `npm run lint && npm run build` pass in both `v2/server` and `v2/web`.
+
+---
+
+## Deploy to Railway
+
+Two Railway services from this one repo — **no GPU and no Python service are needed** (STT/LLM are Groq API calls; TTS runs in the visitor's browser).
+
+### 0. One-time: Supabase table
+
+In your Supabase project's SQL editor, run:
+
+```sql
+create table if not exists sessions (
+  id uuid primary key,
+  data jsonb not null,
+  created_at timestamptz not null default now(),
+  updated_at timestamptz not null default now()
+);
+```
+
+(Railway's filesystem is ephemeral, so use `STORAGE_BACKEND=supabase` in production.)
+
+### 1. Backend service (Node)
+
+Railway → **New Project → Deploy from GitHub repo** → pick this repo, then in the service settings:
+
+- **Root directory**: `v2/server`
+- **Build command**: `npm install && npm run build`
+- **Start command**: `npm start`
+- Generate a public domain (Settings → Networking).
+
+Environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `GROQ_API_KEY` | your key from console.groq.com |
+| `GROQ_MODEL` | `llama-3.3-70b-versatile` (or another Groq chat model) |
+| `GROQ_WHISPER_MODEL` | `whisper-large-v3` |
+| `STORAGE_BACKEND` | `supabase` |
+| `SUPABASE_URL` | your project URL (Supabase → Settings → API) |
+| `SUPABASE_SERVICE_ROLE_KEY` | service-role key (Supabase → Settings → API; keep secret) |
+
+(`PORT` is injected by Railway automatically.)
+
+### 2. Frontend service (static)
+
+Add a second service from the same repo:
+
+- **Root directory**: `v2/web`
+- **Build command**: `npm install && npm run build`
+- **Start command**: `npx serve -s dist -l $PORT` (or use Railway's static-site option pointing at `dist/`)
+- Generate a public domain.
+
+Environment variables:
+
+| Variable | Value |
+| --- | --- |
+| `VITE_API_URL` | the backend service's public URL, e.g. `https://your-backend.up.railway.app` (no trailing slash) |
+| `VITE_INTERVIEWER_NAME` | optional, defaults to `Maya` |
+
+Vite reads `VITE_*` variables at **build** time — change them and redeploy the frontend, not just restart it. Pushes to the connected branch auto-deploy both services.

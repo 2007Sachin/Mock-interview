@@ -1,5 +1,7 @@
 # Pathwisse Mock Interview
 
+> **🚀 New here? Use the v2 rebuild in [`/v2`](./v2/README.md)** — a minimal turn-based version (plain HTTP, no websockets/Pipecat/Python). Setup walkthrough for non-coders: [`/v2/GETTING_STARTED.md`](./v2/GETTING_STARTED.md). Everything below describes the original app, kept for reference.
+
 Pathwisse Mock Interview is the interview delivery stack for the LMS opportunity flow. It supports two runtime modes:
 
 - browser fallback mode for simple local speech capture/playback
