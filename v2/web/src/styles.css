@@ -1,0 +1,209 @@
+@import 'tailwindcss';
+
+/*
+ * Design tokens — light professional theme, indigo primary, amber accent.
+ * Exposed as Tailwind utilities (bg-canvas, text-ink, bg-primary, …).
+ */
+@theme {
+  --font-sans: 'Inter', -apple-system, 'Segoe UI', system-ui, sans-serif;
+
+  --color-canvas: #f6f7fb; /* page background */
+  --color-surface: #ffffff; /* cards */
+  --color-surface-muted: #eef0f7; /* nested / subtle surfaces */
+  --color-edge: #d7dbe7; /* borders */
+
+  --color-ink: #1d2433; /* primary text */
+  --color-ink-secondary: #4b5468;
+  --color-ink-muted: #7d869c;
+
+  --color-primary: #4f46e5; /* indigo: actions, focus */
+  --color-primary-strong: #4338ca;
+  --color-primary-soft: #e0e7ff;
+
+  --color-accent: #f59e0b; /* amber: highlights, recording */
+  --color-accent-soft: #fef3c7;
+
+  --color-danger: #dc2626;
+  --color-danger-soft: #fee2e2;
+  --color-success: #059669;
+}
+
+@layer base {
+  body {
+    @apply bg-canvas text-ink font-sans antialiased;
+  }
+
+  :focus-visible {
+    outline: 2px solid var(--color-primary);
+    outline-offset: 2px;
+  }
+}
+
+/* ---------- Interviewer orb (pure CSS animation) ---------- */
+
+.orb {
+  position: relative;
+  width: 96px;
+  height: 96px;
+}
+
+.orb-core {
+  position: absolute;
+  inset: 14px;
+  border-radius: 50%;
+  background: radial-gradient(circle at 35% 30%, #818cf8, var(--color-primary) 70%);
+  box-shadow: 0 0 24px rgb(79 70 229 / 0.3);
+  transition:
+    background 0.3s ease,
+    box-shadow 0.3s ease;
+}
+
+.orb-ring {
+  position: absolute;
+  inset: 0;
+  border-radius: 50%;
+  border: 2px solid var(--color-primary);
+  opacity: 0;
+}
+
+/* SPEAKING: indigo core gently swelling, rings ripple outward */
+.orb[data-state='speaking'] .orb-core {
+  animation: orb-swell 1.1s ease-in-out infinite;
+}
+
+.orb[data-state='speaking'] .orb-ring {
+  animation: orb-ripple 1.6s ease-out infinite;
+}
+
+.orb[data-state='speaking'] .orb-ring-2 {
+  animation-delay: 0.8s;
+}
+
+/* LISTENING (recording): amber core, slow breathing */
+.orb[data-state='listening'] .orb-core {
+  background: radial-gradient(circle at 35% 30%, #fbbf24, var(--color-accent) 70%);
+  box-shadow: 0 0 28px rgb(245 158 11 / 0.45);
+  animation: orb-breathe 2.6s ease-in-out infinite;
+}
+
+.orb[data-state='listening'] .orb-ring {
+  border-color: var(--color-accent);
+  opacity: 0.35;
+}
+
+/* THINKING (transcribing / LLM): muted core, orbiting ring */
+.orb[data-state='thinking'] .orb-core {
+  background: radial-gradient(circle at 35% 30%, #a5b4fc, #6366f1 70%);
+  animation: orb-breathe 1.4s ease-in-out infinite;
+}
+
+.orb[data-state='thinking'] .orb-ring {
+  opacity: 0.6;
+  border-style: dashed;
+  animation: orb-spin 2.4s linear infinite;
+}
+
+@keyframes orb-swell {
+  0%,
+  100% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.08);
+  }
+}
+
+@keyframes orb-ripple {
+  0% {
+    transform: scale(0.7);
+    opacity: 0.6;
+  }
+  100% {
+    transform: scale(1.25);
+    opacity: 0;
+  }
+}
+
+@keyframes orb-breathe {
+  0%,
+  100% {
+    transform: scale(0.96);
+  }
+  50% {
+    transform: scale(1.04);
+  }
+}
+
+@keyframes orb-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+/* ---------- Indeterminate loading bar ---------- */
+
+.loading-bar {
+  height: 6px;
+  border-radius: 999px;
+  background: var(--color-surface-muted);
+  overflow: hidden;
+}
+
+.loading-bar div {
+  height: 100%;
+  width: 35%;
+  border-radius: 999px;
+  background: var(--color-primary);
+  animation: loading-slide 1.4s ease-in-out infinite;
+}
+
+@keyframes loading-slide {
+  0% {
+    transform: translateX(-100%);
+  }
+  100% {
+    transform: translateX(300%);
+  }
+}
+
+/* ---------- Recording pulse ---------- */
+
+.recording-dot {
+  width: 12px;
+  height: 12px;
+  border-radius: 50%;
+  background: var(--color-danger);
+  animation: pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+/* ---------- Print (report download) ---------- */
+
+@media print {
+  body {
+    background: #fff;
+  }
+
+  .print-shell {
+    max-width: none !important;
+    padding: 0 !important;
+  }
+
+  .no-print {
+    display: none !important;
+  }
+
+  .print-card {
+    box-shadow: none !important;
+    break-inside: avoid;
+  }
+}
