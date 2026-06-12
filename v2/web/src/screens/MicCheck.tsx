@@ -1,9 +1,10 @@
 import { useEffect, useRef, useState } from 'react';
+import { Button, Card, NavBar } from '../components/ui';
 import { Recorder } from '../lib/recorder';
 
 type Phase = 'idle' | 'recording' | 'playback';
 
-export function MicCheck({ onContinue }: { onContinue: () => void }) {
+export function MicCheck({ onBack, onContinue }: { onBack: () => void; onContinue: () => void }) {
   const [phase, setPhase] = useState<Phase>('idle');
   const [clipUrl, setClipUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -32,41 +33,47 @@ export function MicCheck({ onContinue }: { onContinue: () => void }) {
   }
 
   return (
-    <div className="card">
-      <h2>Mic check</h2>
-      <p className="subtle">
+    <Card>
+      <h2 className="text-2xl font-bold tracking-tight">Mic check</h2>
+      <p className="mt-1 mb-6 text-ink-secondary">
         Record a few seconds and play it back to make sure you can be heard clearly.
       </p>
 
-      <div className="room-controls">
+      <div className="flex min-h-14 flex-wrap items-center gap-3">
         {phase === 'idle' && (
-          <button className="btn btn-primary" onClick={start}>
+          <Button variant="primary" onClick={start}>
             Record a test clip
-          </button>
+          </Button>
         )}
         {phase === 'recording' && (
           <>
             <span className="recording-dot" aria-hidden />
-            <span>Say something like &quot;testing, one two three&quot;…</span>
-            <button className="btn btn-secondary" onClick={stop}>
-              Stop
-            </button>
+            <span className="text-sm">Say something like &quot;testing, one two three&quot;…</span>
+            <Button onClick={stop}>Stop</Button>
           </>
         )}
         {phase === 'playback' && clipUrl && (
           <>
             <audio controls src={clipUrl} />
-            <button className="btn btn-secondary" onClick={start}>
-              Try again
-            </button>
-            <button className="btn btn-primary" onClick={onContinue}>
-              Sounds good — continue
-            </button>
+            <Button onClick={start}>Try again</Button>
           </>
         )}
       </div>
 
-      {error && <div className="error-banner">{error}</div>}
-    </div>
+      {error && (
+        <div className="mt-4 rounded-lg bg-danger-soft px-4 py-3 text-sm text-danger">{error}</div>
+      )}
+
+      <NavBar onBack={onBack}>
+        {phase !== 'playback' && (
+          <Button variant="ghost" onClick={onContinue}>
+            Skip mic check
+          </Button>
+        )}
+        <Button variant="primary" onClick={onContinue} disabled={phase === 'recording'}>
+          {phase === 'playback' ? 'Sounds good — continue →' : 'Continue →'}
+        </Button>
+      </NavBar>
+    </Card>
   );
 }

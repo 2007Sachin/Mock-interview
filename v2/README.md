@@ -12,7 +12,7 @@ A minimal, turn-based rebuild of the mock-interview app. No websockets, no strea
 
 | Piece | Choice |
 | --- | --- |
-| Frontend | React + Vite (`v2/web`) |
+| Frontend | React + Vite + Tailwind CSS v4 (`v2/web`) |
 | Backend | Single Node + Express service (`v2/server`) |
 | Speech-to-text | Groq hosted `whisper-large-v3` (audio file transcription) |
 | LLM | Groq chat completions (`GROQ_MODEL`) |
@@ -71,12 +71,14 @@ Verify it locally:
 
 What exists: briefing screen (focus areas, question count, expected length), mic check with playback, interviewer intro (name via `VITE_INTERVIEWER_NAME`, intro line spoken), progress header + bar, **Repeat question**, **Skip**, **End interview**, a **Type instead** text fallback, and the animated interviewer orb whose SPEAKING / LISTENING / THINKING states follow the actual turn state machine. New endpoints: `POST /api/session/:id/skip`, `POST /api/session/:id/end`, and `/answer` now also accepts a `text` field.
 
+Navigation & responsiveness: a step trail (Setup → Briefing → Mic check → Meet → Interview → Report) is always visible at the top, every step screen has a **← Back** button, and all controls stay clickable while the interviewer is speaking — clicking **Answer** (or Skip / Type instead / Begin) simply interrupts the speech. Question audio starts as soon as the first sentence is synthesized (WebGPU when available, sentence-by-sentence playback) instead of waiting for the whole clip.
+
 Verify it locally (skill mode, start to finish):
 
 1. Start both services and open <http://localhost:5173>. Create a 4-question skill interview.
 2. **Briefing**: check the title, summary, focus areas, "4 questions" and expected length are shown; continue.
 3. **Mic check**: record a test clip, play it back, hear yourself; continue.
-4. **Intro**: the interviewer (default name "Maya") speaks an intro line while the orb pulses indigo (SPEAKING); the Begin button enables when she finishes.
+4. **Intro**: the interviewer (default name "Maya") speaks an intro line while the orb pulses indigo (SPEAKING); **Begin interview** works at any time — clicking it just cuts the intro short.
 5. **Room**: confirm "Question 1 of 4" and the progress bar. While the question is read the orb is indigo/rippling (SPEAKING); click **Answer** and it turns amber and breathes (LISTENING); click **Done** and it spins dashed (THINKING) until the transcript lands.
 6. Use each control once across the interview: **Repeat question** (it is re-spoken), **Type instead** (submit one typed answer and see it echoed as the transcript), **Skip** (jumps to the next question, progress advances).
 7. Click **End interview** mid-way once to confirm you land on the completion screen, then run one more interview through all questions to the end.

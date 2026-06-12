@@ -147,7 +147,9 @@ Work through this checklist in order — each stage builds on the previous one. 
 - [ ] After question 2 the interview completes.
 
 **Stage 2 — full interview flow**
+- [ ] The step trail at the top (Setup → Briefing → Mic check → Meet → Interview → Report) shows where you are, and every step has a **← Back** button.
 - [ ] Briefing screen shows the plan (question count, focus areas, length).
+- [ ] Buttons work even while the interviewer is talking — clicking **Answer** just interrupts her.
 - [ ] Mic check lets you record and play back a test clip.
 - [ ] The interviewer introduces herself out loud; the orb animates while she speaks.
 - [ ] The room shows "Question X of Y" with a progress bar.
